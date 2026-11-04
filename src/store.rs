@@ -3,6 +3,7 @@
 
 use chrono::{Datelike, Days, Local, NaiveDate, NaiveTime, TimeZone};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::{fs, io, path::PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -27,15 +28,20 @@ pub struct Entry {
     pub kind: Kind,
     pub start: i64,
     pub end: i64,
+    /// What the time went on ("Doomscrolling", "Coding"); empty if unnamed.
+    #[serde(default)]
+    pub activity: String,
     #[serde(default)]
     pub note: String,
 }
 
 /// The start/stop tracker. Persisted so a crash or restart keeps counting.
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Running {
     pub kind: Kind,
     pub start: i64,
+    #[serde(default)]
+    pub activity: String,
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -76,22 +82,94 @@ pub struct Settings {
     pub lang: Lang,
     /// Last window position and inner size, in physical pixels.
     pub window: Option<Geom>,
-    /// Custom productive / wasted colours (`#rrggbb`); `None` follows the theme.
-    pub positive: Option<String>,
-    pub negative: Option<String>,
     pub sound_profile: SoundProfile,
+    /// Per-theme colour overrides (`#rrggbb`); anything missing follows the theme.
+    pub custom: BTreeMap<Theme, BTreeMap<Token, String>>,
+    /// Pre-0.3 global overrides; moved into `custom` on load.
+    #[serde(skip_serializing)]
+    pub positive: Option<String>,
+    #[serde(skip_serializing)]
+    pub negative: Option<String>,
+}
+
+/// A themeable colour.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+pub enum Token {
+    Accent,
+    Bg,
+    Text,
+    Positive,
+    Negative,
+}
+
+impl Token {
+    pub const ALL: [Token; 5] = [Token::Accent, Token::Bg, Token::Text, Token::Positive, Token::Negative];
+
+    /// The CSS variable it drives.
+    pub fn var(self) -> &'static str {
+        match self {
+            Token::Accent => "--accent",
+            Token::Bg => "--bg",
+            Token::Text => "--text",
+            Token::Positive => "--productive",
+            Token::Negative => "--wasted",
+        }
+    }
 }
 
 impl Settings {
-    /// Productive and wasted colours in effect: the custom ones if valid, else the theme's.
-    pub fn mood_colors(&self) -> (&str, &str) {
-        let (p, n) = self.theme.mood_colors();
-        // Validated because the value is pasted into inline CSS.
-        fn pick<'a>(c: &'a Option<String>, fallback: &'a str) -> &'a str {
-            c.as_deref().filter(|c| is_hex_color(c)).unwrap_or(fallback)
-        }
-        (pick(&self.positive, p), pick(&self.negative, n))
+    /// The colour in effect for `token`: this theme's override if valid, else the theme default.
+    pub fn color(&self, token: Token) -> &str {
+        self.custom
+            .get(&self.theme)
+            .and_then(|m| m.get(&token))
+            .map(String::as_str)
+            // Validated because the value is pasted into inline CSS.
+            .filter(|c| is_hex_color(c))
+            .unwrap_or(self.theme.color(token))
     }
+
+    pub fn is_custom(&self, token: Token) -> bool {
+        self.custom.get(&self.theme).is_some_and(|m| m.contains_key(&token))
+    }
+
+    /// Sets (or with `None`, clears) an override for the current theme.
+    pub fn set_color(&mut self, token: Token, value: Option<String>) {
+        let map = self.custom.entry(self.theme).or_default();
+        match value.and_then(|c| parse_hex(&c)) {
+            Some(c) => map.insert(token, c),
+            None => map.remove(&token),
+        };
+        if map.is_empty() {
+            self.custom.remove(&self.theme);
+        }
+    }
+
+    /// Inline CSS custom properties for every themeable colour.
+    pub fn css_vars(&self) -> String {
+        Token::ALL.iter().map(|t| format!("{}: {};", t.var(), self.color(*t))).collect()
+    }
+
+    fn migrate(&mut self) {
+        if let Some(c) = self.positive.take() {
+            self.set_color(Token::Positive, Some(c));
+        }
+        if let Some(c) = self.negative.take() {
+            self.set_color(Token::Negative, Some(c));
+        }
+    }
+}
+
+/// `#abc`, `abc`, `#aabbcc` or `aabbcc` → `#aabbcc`.
+pub fn parse_hex(input: &str) -> Option<String> {
+    let h = input.trim().trim_start_matches('#');
+    let full: String = match h.len() {
+        3 => h.chars().flat_map(|c| [c, c]).collect(),
+        6 => h.to_string(),
+        _ => return None,
+    };
+    let c = format!("#{}", full.to_ascii_lowercase());
+    is_hex_color(&c).then_some(c)
 }
 
 pub fn is_hex_color(s: &str) -> bool {
@@ -134,7 +212,7 @@ impl SoundProfile {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default, Serialize, Deserialize)]
 pub enum Theme {
     #[default]
     Copper,
@@ -159,16 +237,23 @@ impl Theme {
         }
     }
 
-    /// Default (productive, wasted) ink from each theme's own palette; every pair passes a
-    /// colour-blind separation check.
-    pub fn mood_colors(self) -> (&'static str, &'static str) {
-        match self {
-            Theme::Copper => ("#2dd4bf", "#f87171"),
-            Theme::Gruvbox => ("#8ec07c", "#fb4934"),
-            Theme::Dracula => ("#50fa7b", "#ff79c6"),
-            Theme::Nord => ("#88c0d0", "#bf616a"),
-            Theme::Catppuccin => ("#94e2d5", "#f38ba8"),
-            Theme::RosePine => ("#9ccfd8", "#eb6f92"),
+    /// Theme defaults. Accent/bg/text from kopuz's themes; productive/wasted ink from each
+    /// theme's own palette, every pair checked for colour-blind separation.
+    pub fn color(self, token: Token) -> &'static str {
+        let [accent, bg, text, positive, negative] = match self {
+            Theme::Copper => ["#d9842f", "#000000", "#ffffff", "#2dd4bf", "#f87171"],
+            Theme::Gruvbox => ["#458588", "#282828", "#ebdbb2", "#8ec07c", "#fb4934"],
+            Theme::Dracula => ["#bd93f9", "#282a36", "#f8f8f2", "#50fa7b", "#ff79c6"],
+            Theme::Nord => ["#88c0d0", "#2e3440", "#d8dee9", "#88c0d0", "#bf616a"],
+            Theme::Catppuccin => ["#89b4fa", "#1e1e2e", "#cdd6f4", "#94e2d5", "#f38ba8"],
+            Theme::RosePine => ["#c4a7e7", "#191724", "#e0def4", "#9ccfd8", "#eb6f92"],
+        };
+        match token {
+            Token::Accent => accent,
+            Token::Bg => bg,
+            Token::Text => text,
+            Token::Positive => positive,
+            Token::Negative => negative,
         }
     }
 }
@@ -219,9 +304,10 @@ impl Default for Settings {
             theme: Theme::Copper,
             lang: Lang::En,
             window: None,
+            sound_profile: SoundProfile::Creamy,
+            custom: BTreeMap::new(),
             positive: None,
             negative: None,
-            sound_profile: SoundProfile::Creamy,
         }
     }
 }
@@ -234,6 +320,11 @@ pub struct Store {
     pub todos: Vec<Todo>,
     pub settings: Settings,
     pub next_id: u64,
+    /// Remembered activity names per kind, most recently used first. Focus uses productive's.
+    pub productive_activities: Vec<String>,
+    pub wasted_activities: Vec<String>,
+    /// What the Pomodoro's focus blocks are logged as.
+    pub focus_activity: String,
 }
 
 impl Store {
@@ -242,9 +333,9 @@ impl Store {
         self.next_id
     }
 
-    pub fn add_entry(&mut self, kind: Kind, start: i64, end: i64, note: String) {
+    pub fn add_entry(&mut self, kind: Kind, start: i64, end: i64, activity: String, note: String) {
         let id = self.next_id();
-        self.entries.push(Entry { id, kind, start, end, note });
+        self.entries.push(Entry { id, kind, start, end, activity, note });
     }
 
     /// Stops the tracker, logging what it counted (zero-length runs are dropped).
@@ -252,14 +343,61 @@ impl Store {
         if let Some(r) = self.running.take()
             && now > r.start
         {
-            self.add_entry(r.kind, r.start, now, String::new());
+            self.add_entry(r.kind, r.start, now, r.activity, String::new());
         }
     }
 
-    /// Starts tracking `kind`, logging whatever was running before.
-    pub fn start(&mut self, kind: Kind, now: i64) {
+    /// Starts tracking `kind` as `activity`, logging whatever was running before.
+    pub fn start(&mut self, kind: Kind, activity: String, now: i64) {
         self.stop(now);
-        self.running = Some(Running { kind, start: now });
+        self.remember(kind, &activity);
+        self.running = Some(Running { kind, start: now, activity: activity.trim().to_string() });
+    }
+
+    pub fn activities(&self, kind: Kind) -> &[String] {
+        match kind {
+            Kind::Productive => &self.productive_activities,
+            Kind::Wasted => &self.wasted_activities,
+        }
+    }
+
+    fn activities_mut(&mut self, kind: Kind) -> &mut Vec<String> {
+        match kind {
+            Kind::Productive => &mut self.productive_activities,
+            Kind::Wasted => &mut self.wasted_activities,
+        }
+    }
+
+    /// Moves `name` to the front of the list (adding it the first time). Case-insensitive.
+    pub fn remember(&mut self, kind: Kind, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let list = self.activities_mut(kind);
+        list.retain(|a| !a.eq_ignore_ascii_case(name));
+        list.insert(0, name.to_string());
+    }
+
+    pub fn forget(&mut self, kind: Kind, name: &str) {
+        self.activities_mut(kind).retain(|a| a != name);
+    }
+
+    /// Seconds per activity of `kind` inside the range, largest first. Names group
+    /// case-insensitively; unnamed time is `""`.
+    pub fn breakdown(&self, kind: Kind, (a, b): (i64, i64), now: i64) -> Vec<(String, i64)> {
+        let mut by: BTreeMap<String, (String, i64)> = BTreeMap::new();
+        let live = self.running.as_ref().map(|r| (r.kind, r.start, now, r.activity.as_str()));
+        let spans = self.entries.iter().map(|e| (e.kind, e.start, e.end, e.activity.as_str())).chain(live);
+        for (k, s, e, name) in spans {
+            let secs = overlap(s, e, a, b);
+            if k == kind && secs > 0 {
+                by.entry(name.to_lowercase()).or_insert_with(|| (name.to_string(), 0)).1 += secs;
+            }
+        }
+        let mut out: Vec<(String, i64)> = by.into_values().collect();
+        out.sort_by_key(|(_, s)| std::cmp::Reverse(*s));
+        out
     }
 
     /// Seconds of `kind` inside `[a, b)`, including the live tracker.
@@ -272,6 +410,7 @@ impl Store {
             .sum();
         let live = self
             .running
+            .as_ref()
             .filter(|r| r.kind == kind)
             .map_or(0, |r| overlap(r.start, now, a, b));
         logged + live
@@ -403,7 +542,12 @@ pub fn path() -> PathBuf {
 pub fn load() -> Store {
     let p = path();
     match fs::read_to_string(&p) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
+        Ok(text) => serde_json::from_str::<Store>(&text)
+            .map(|mut s| {
+                s.settings.migrate();
+                s
+            })
+            .unwrap_or_else(|e| {
             let aside = p.with_file_name(format!("koritsu.corrupt-{}.json", now()));
             eprintln!("koritsu: {} is unreadable ({e}); moved to {}", p.display(), aside.display());
             let _ = fs::rename(&p, aside);
@@ -442,7 +586,7 @@ mod tests {
     fn entry_across_midnight_splits_between_days() {
         let mut s = Store::default();
         let start = local_ts(d(2026, 11, 1), NaiveTime::from_hms_opt(23, 0, 0).unwrap());
-        s.add_entry(Kind::Wasted, start, start + 2 * 3600, String::new());
+        s.add_entry(Kind::Wasted, start, start + 2 * 3600, String::new(), String::new());
         let now = start + 10 * 3600;
         assert_eq!(s.total(Kind::Wasted, Period::Day.range(d(2026, 11, 1)), now), 3600);
         assert_eq!(s.total(Kind::Wasted, Period::Day.range(d(2026, 11, 2)), now), 3600);
@@ -454,9 +598,9 @@ mod tests {
     #[test]
     fn running_tracker_counts_live_and_stop_logs_it() {
         let mut s = Store::default();
-        s.start(Kind::Productive, 1000);
+        s.start(Kind::Productive, "Coding".into(), 1000);
         assert_eq!(s.total(Kind::Productive, (0, i64::MAX), 1600), 600);
-        s.start(Kind::Wasted, 1600); // switching logs the productive run
+        s.start(Kind::Wasted, String::new(), 1600); // switching logs the productive run
         assert_eq!(s.entries.len(), 1);
         s.stop(1600); // zero-length run is dropped
         assert_eq!(s.entries.len(), 1);
@@ -485,8 +629,8 @@ mod tests {
     #[test]
     fn csv_quotes_awkward_notes() {
         let mut s = Store::default();
-        s.add_entry(Kind::Wasted, 0, 600, "reels, \"just one\"".into());
-        s.add_entry(Kind::Productive, -600, 0, "plain".into());
+        s.add_entry(Kind::Wasted, 0, 600, String::new(), "reels, \"just one\"".into());
+        s.add_entry(Kind::Productive, -600, 0, String::new(), "plain".into());
         let csv = to_csv(&s.entries);
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "kind,start,end,minutes,note");
@@ -501,11 +645,47 @@ mod tests {
     }
 
     #[test]
-    fn mood_colors_fall_back_to_theme_unless_valid() {
+    fn colors_are_per_theme_and_validated() {
         let mut s = Settings { theme: Theme::Nord, ..Settings::default() };
-        assert_eq!(s.mood_colors(), ("#88c0d0", "#bf616a"));
-        s.positive = Some("#123abc".into());
-        s.negative = Some("red; background: url(x)".into()); // never reaches the inline style
-        assert_eq!(s.mood_colors(), ("#123abc", "#bf616a"));
+        assert_eq!(s.color(Token::Negative), "#bf616a");
+        s.set_color(Token::Accent, Some("#ABCDEF".into()));
+        s.set_color(Token::Bg, Some("red; background: url(x)".into())); // rejected
+        assert_eq!(s.color(Token::Accent), "#abcdef");
+        assert_eq!(s.color(Token::Bg), "#2e3440");
+        s.theme = Theme::Copper; // the override belongs to Nord only
+        assert_eq!(s.color(Token::Accent), "#d9842f");
+        s.theme = Theme::Nord;
+        s.set_color(Token::Accent, None);
+        assert!(s.custom.is_empty());
+    }
+
+    #[test]
+    fn legacy_global_colours_migrate() {
+        let mut s: Settings = serde_json::from_str(r##"{"theme":"Dracula","positive":"#112233"}"##).unwrap();
+        s.migrate();
+        assert_eq!(s.color(Token::Positive), "#112233");
+        assert!(s.positive.is_none());
+    }
+
+    #[test]
+    fn parse_hex_forms() {
+        assert_eq!(parse_hex("#ABC").as_deref(), Some("#aabbcc"));
+        assert_eq!(parse_hex(" d9842f ").as_deref(), Some("#d9842f"));
+        assert_eq!(parse_hex("#12345"), None);
+        assert_eq!(parse_hex("#zzzzzz"), None);
+    }
+
+    #[test]
+    fn activities_are_mru_and_broken_down() {
+        let mut s = Store::default();
+        s.start(Kind::Wasted, "Doomscrolling".into(), 0);
+        s.start(Kind::Wasted, "YouTube".into(), 600);
+        s.start(Kind::Wasted, "doomscrolling".into(), 900); // same activity, different case
+        assert_eq!(s.activities(Kind::Wasted), ["doomscrolling", "YouTube"]);
+        s.stop(1500);
+        let b = s.breakdown(Kind::Wasted, (0, 2000), 2000);
+        assert_eq!(b, [("Doomscrolling".to_string(), 1200), ("YouTube".to_string(), 300)]);
+        s.forget(Kind::Wasted, "YouTube");
+        assert_eq!(s.activities(Kind::Wasted).len(), 1);
     }
 }

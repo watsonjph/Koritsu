@@ -1,3 +1,4 @@
+use crate::activity::{ASK, Ask};
 use crate::i18n::{Tr, tr};
 use crate::icons::{Icon, PAUSE, PLAY, RESET, SKIP};
 use crate::store::{POMO_DEFAULTS, Settings, Store, fmt_clock, now};
@@ -138,6 +139,7 @@ pub fn FocusTab() -> Element {
     let now = NOW();
     let p = pomo();
     let rounds = store.read().settings.rounds.max(1);
+    let focus_activity = store.read().focus_activity.clone();
     let filled = if p.phase == Phase::Long { rounds } else { p.done % rounds };
     let pct = 100.0 * (1.0 - p.remaining(now) as f64 / p.total.max(1) as f64);
 
@@ -145,6 +147,9 @@ pub fn FocusTab() -> Element {
         div { class: "tab focus-tab",
             div { class: "pomo-face {p.phase.class()}", class: if p.running() { "live" }, style: "--pct: {pct}%",
                 div { class: "caption", "{p.phase.label(t)}" }
+                if p.phase == Phase::Focus && !focus_activity.is_empty() {
+                    div { class: "activity-now", "{focus_activity}" }
+                }
                 div { class: "pomo-time", "{fmt_clock(p.remaining(now))}" }
                 div { class: "dots",
                     for i in 0..rounds {
@@ -165,7 +170,15 @@ pub fn FocusTab() -> Element {
                 }
                 button {
                     class: "btn primary big",
-                    onclick: move |_| toggle(store, pomo),
+                    onclick: move |_| {
+                        // A fresh focus block asks what it's for; resuming or a break just goes.
+                        let p = *pomo.peek();
+                        if p.phase == Phase::Focus && p.untouched() {
+                            *ASK.write() = Some(Ask::Focus);
+                        } else {
+                            toggle(store, pomo);
+                        }
+                    },
                     if p.running() {
                         Icon { d: PAUSE }
                         "{t.pause}"

@@ -1,3 +1,4 @@
+use crate::activity;
 use crate::i18n::{Tr, fill, tr};
 use crate::icons::{Icon, PENCIL, PLUS, TRASH};
 use crate::store::{Entry, Kind, Period, Store, fmt_dur, local_ts, today};
@@ -10,6 +11,7 @@ use dioxus::prelude::*;
 struct Draft {
     id: Option<u64>,
     kind: Kind,
+    activity: String,
     date: String,
     time: String,
     hours: String,
@@ -42,6 +44,7 @@ impl Draft {
         Self {
             id: None,
             kind: Kind::Wasted,
+            activity: String::new(),
             date: now.format("%Y-%m-%d").to_string(),
             time: now.format("%H:%M").to_string(),
             hours: "1".into(),
@@ -56,6 +59,7 @@ impl Draft {
         Self {
             id: Some(e.id),
             kind: e.kind,
+            activity: e.activity.clone(),
             date: start.format("%Y-%m-%d").to_string(),
             time: start.format("%H:%M").to_string(),
             hours: (mins / 60).to_string(),
@@ -154,6 +158,13 @@ pub fn StatsTab() -> Element {
         (0, _) => fill(t.nudge_clean, &[("p", this)]),
         (w, pr) => fill(t.nudge, &[("d", &fmt_dur(w)), ("p", this), ("n", &(100 * pr / (w + pr)).to_string())]),
     };
+    let wasted_by = st.breakdown(Kind::Wasted, range, now);
+    let productive_by = st.breakdown(Kind::Productive, range, now);
+    // Name the biggest time sink, if it has a name.
+    let nudge = match wasted_by.first() {
+        Some((name, secs)) if !name.is_empty() => format!("{nudge} {}", fill(t.nudge_top, &[("a", name), ("d", &fmt_dur(*secs))])),
+        _ => nudge,
+    };
 
     let mut entries: Vec<Entry> = st
         .entries
@@ -192,6 +203,13 @@ pub fn StatsTab() -> Element {
             }
             p { class: "nudge", "{nudge}" }
             Chart { period: p }
+            if !(wasted_by.is_empty() && productive_by.is_empty()) {
+                div { class: "breakdown",
+                    span { class: "caption", "{t.by_activity}" }
+                    Breakdown { kind: Kind::Wasted, rows: wasted_by, total: wasted }
+                    Breakdown { kind: Kind::Productive, rows: productive_by, total: productive }
+                }
+            }
             div { class: "row between",
                 span { class: "caption", "{t.entries} · {this}" }
                 button { class: "btn small", onclick: move |_| draft.set(Some(Draft::new())),
@@ -207,11 +225,10 @@ pub fn StatsTab() -> Element {
                     li { key: "{e.id}", class: "item",
                         span { class: "dot-kind {e.kind.class()}" }
                         div { class: "grow",
-                            div { class: "item-text",
+                            div { class: "item-text", "{activity::label(&e.activity)}" }
+                            div { class: "muted small",
                                 {format!("{}–{}", local(e.start).format(t.entry_fmt), local(e.end).format("%H:%M"))}
-                            }
-                            if !e.note.is_empty() {
-                                div { class: "muted small", "{e.note}" }
+                                if !e.note.is_empty() { " · {e.note}" }
                             }
                         }
                         span { class: "chip", "{fmt_dur(e.end - e.start)}" }
@@ -267,16 +284,26 @@ fn Chart(period: Period) -> Element {
     let t = tr();
     let now = NOW();
     let st = store.read();
-    let cols: Vec<(Bucket, i64, i64)> = buckets(period, today(), t)
+    // Tooltip line: total plus the top two activities, e.g. "▲ 2h 0m · Coding 1h 30m, Reading 30m".
+    let line = |kind: Kind, range| {
+        let rows = st.breakdown(kind, range, now);
+        let total: i64 = rows.iter().map(|(_, s)| s).sum();
+        let top: Vec<String> = rows.iter().take(2).map(|(n, s)| format!("{} {}", activity::label(n), fmt_dur(*s))).collect();
+        let arrow = if kind == Kind::Productive { "▲" } else { "▼" };
+        let text = if top.is_empty() { format!("{arrow} 0m") } else { format!("{arrow} {} · {}", fmt_dur(total), top.join(", ")) };
+        (total, text)
+    };
+    let cols: Vec<(Bucket, i64, i64, String)> = buckets(period, today(), t)
         .into_iter()
         .map(|b| {
-            let p = st.total(Kind::Productive, b.range, now);
-            let w = st.total(Kind::Wasted, b.range, now);
-            (b, p, w)
+            let (p, pt) = line(Kind::Productive, b.range);
+            let (w, wt) = line(Kind::Wasted, b.range);
+            let tip = format!("{}\n{pt}\n{wt}", b.name);
+            (b, p, w, tip)
         })
         .collect();
     // Scale against at least an hour so a 2-minute bucket doesn't fill the chart.
-    let peak = cols.iter().map(|(_, p, w)| (*p).max(*w)).max().unwrap_or(0).max(3600) as f64;
+    let peak = cols.iter().map(|(_, p, w, _)| (*p).max(*w)).max().unwrap_or(0).max(3600) as f64;
     let h = |v: i64| v as f64 / peak * 100.0;
 
     rsx! {
@@ -286,11 +313,11 @@ fn Chart(period: Period) -> Element {
                 span { span { class: "swatch wasted" } "▼ {t.wasted}" }
             }
             div { class: "plot",
-                for (i, (b, p, w)) in cols.into_iter().enumerate() {
+                for (i, (b, p, w, tip)) in cols.into_iter().enumerate() {
                     div {
                         key: "{period:?}-{i}",
                         class: if (b.range.0..b.range.1).contains(&now) { "col now" } else { "col" },
-                        title: "{b.name}\n▲ {fmt_dur(p)}\n▼ {fmt_dur(w)}",
+                        title: "{tip}",
                         div { class: "half up", div { class: "bar productive", style: "height: {h(p)}%" } }
                         div { class: "half down", div { class: "bar wasted", style: "height: {h(w)}%" } }
                         span { class: "tick", "{b.label}" }
@@ -301,15 +328,34 @@ fn Chart(period: Period) -> Element {
     }
 }
 
+/// One kind's time split by activity, as proportional bars.
+#[component]
+fn Breakdown(kind: Kind, rows: Vec<(String, i64)>, total: i64) -> Element {
+    rsx! {
+        ul { class: "list",
+            for (name, secs) in rows {
+                li { key: "{name}", class: "share-row",
+                    span { class: "dot-kind {kind.class()}" }
+                    span { class: "share-name", "{activity::label(&name)}" }
+                    span { class: "share-bar", span { class: "share-fill {kind.class()}", style: "width: {secs as f64 / total.max(1) as f64 * 100.0}%" } }
+                    span { class: "chip", "{fmt_dur(secs)}" }
+                }
+            }
+        }
+    }
+}
+
 /// Dimmed backdrop that closes on Escape or a click outside the dialog.
 #[component]
-pub fn Overlay(onclose: EventHandler<()>, children: Element) -> Element {
+pub fn Overlay(onclose: EventHandler<()>, children: Element, #[props(default = true)] focus_self: bool) -> Element {
     rsx! {
         div {
             class: "overlay",
             tabindex: "-1",
             onmounted: move |e| async move {
-                let _ = e.set_focus(true).await;
+                if focus_self {
+                    let _ = e.set_focus(true).await;
+                }
             },
             onkeydown: move |e| {
                 if e.key() == Key::Escape {
@@ -341,19 +387,24 @@ fn EntryForm(draft: Signal<Option<Draft>>) -> Element {
         match d.parse() {
             Err(err) => error.set(Some(err)),
             Ok((start, end)) => {
-                commit(store, |s| match d.id {
-                    Some(id) => {
-                        if let Some(x) = s.entries.iter_mut().find(|x| x.id == id) {
-                            (x.kind, x.start, x.end, x.note) = (d.kind, start, end, d.note.trim().into());
+                let activity = d.activity.trim().to_string();
+                commit(store, |s| {
+                    s.remember(d.kind, &activity);
+                    match d.id {
+                        Some(id) => {
+                            if let Some(x) = s.entries.iter_mut().find(|x| x.id == id) {
+                                (x.kind, x.start, x.end, x.activity, x.note) = (d.kind, start, end, activity, d.note.trim().into());
+                            }
                         }
+                        None => s.add_entry(d.kind, start, end, activity, d.note.trim().into()),
                     }
-                    None => s.add_entry(d.kind, start, end, d.note.trim().into()),
                 });
                 draft.set(None);
             }
         }
     };
     let ki = usize::from(d.kind == Kind::Wasted);
+    let suggestions = store.read().activities(d.kind).to_vec();
 
     rsx! {
         Overlay { onclose: move |_| draft.set(None),
@@ -372,6 +423,19 @@ fn EntryForm(draft: Signal<Option<Draft>>) -> Element {
                                 }
                             },
                             if kind == Kind::Productive { "{t.productive}" } else { "{t.wasted}" }
+                        }
+                    }
+                }
+                div { class: "input",
+                    input {
+                        placeholder: "{t.activity}",
+                        list: "activity-suggestions",
+                        value: "{d.activity}",
+                        oninput: move |e| edit(|d, v| d.activity = v, e.value()),
+                    }
+                    datalist { id: "activity-suggestions",
+                        for a in suggestions {
+                            option { key: "{a}", value: "{a}" }
                         }
                     }
                 }

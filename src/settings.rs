@@ -1,8 +1,8 @@
 use crate::i18n::{EN, JA, LANG, fill, tr};
 use crate::icons::{Icon, PLUS, TRASH};
 use crate::place::{self, Corner};
-use crate::store::{self, Lang, Settings, SoundProfile, Store, Theme};
-use crate::{GLOBAL_KEYS, HotkeysOk, commit, set_pinned, sound, theme_class};
+use crate::store::{self, Lang, Settings, SoundProfile, Store, Theme, Token, parse_hex};
+use crate::{GLOBAL_KEYS, HotkeysOk, autostart, commit, set_pinned, sound};
 use dioxus::desktop::window;
 use dioxus::prelude::*;
 use std::path::PathBuf;
@@ -15,7 +15,9 @@ pub fn SettingsTab() -> Element {
     let mut exported = use_signal(|| None::<Result<PathBuf, String>>);
     let t = tr();
     let s = store.read().settings.clone();
-    let (positive, negative) = s.mood_colors();
+    // Read from the registry, which is what Windows will actually do at login.
+    let mut autostart_on = use_signal(autostart::enabled);
+    let mut autostart_err = use_signal(|| None::<String>);
 
     // Flip a bool setting.
     let flip = move |field: fn(&mut Settings) -> &mut bool| {
@@ -31,6 +33,22 @@ pub fn SettingsTab() -> Element {
         div { class: "tab settings-tab",
             div { class: "group",
                 ToggleRow { label: t.always_on_top, on: s.pinned, ontoggle: move |_| set_pinned(store, !s.pinned) }
+                ToggleRow {
+                    label: t.autostart,
+                    on: autostart_on(),
+                    ontoggle: move |_| {
+                        let want = !autostart_on();
+                        match autostart::set(want) {
+                            Ok(()) => autostart_err.set(None),
+                            Err(e) => autostart_err.set(Some(e.to_string())),
+                        }
+                        autostart_on.set(autostart::enabled());
+                        sound::button(&store.peek().settings, "click");
+                    },
+                }
+                if let Some(e) = autostart_err() {
+                    div { class: "set-note error", "{e}" }
+                }
             }
 
             div { class: "caption", "{t.sec_pomodoro}" }
@@ -93,18 +111,34 @@ pub fn SettingsTab() -> Element {
                         for theme in Theme::ALL {
                             button {
                                 key: "{theme.name()}",
-                                class: "swatch-btn {theme_class(theme)}",
-                                class: if s.theme == theme { "on" },
+                                class: if s.theme == theme { "swatch-btn on" } else { "swatch-btn" },
+                                style: "--accent: {theme.color(Token::Accent)}; --bg: {theme.color(Token::Bg)}",
                                 title: "{theme.name()}",
                                 onclick: move |_| commit(store, |st| st.settings.theme = theme),
                             }
                         }
                     }
                 }
-                ColorRow { label: t.positive_color, value: positive.to_string(), custom: s.positive.is_some(),
-                    onpick: move |c| commit(store, |st| st.settings.positive = c) }
-                ColorRow { label: t.negative_color, value: negative.to_string(), custom: s.negative.is_some(),
-                    onpick: move |c| commit(store, |st| st.settings.negative = c) }
+                // Edits apply to the selected theme only; each theme keeps its own tweaks.
+                for token in Token::ALL {
+                    ColorRow {
+                        key: "{token:?}",
+                        label: token_label(token),
+                        value: s.color(token).to_string(),
+                        custom: s.is_custom(token),
+                        onpick: move |c| commit(store, |st| st.settings.set_color(token, c)),
+                    }
+                }
+                if s.custom.contains_key(&s.theme) {
+                    button {
+                        class: "link",
+                        onclick: move |_| commit(store, |st| {
+                            let theme = st.settings.theme;
+                            st.settings.custom.remove(&theme);
+                        }),
+                        "{t.reset_theme}"
+                    }
+                }
                 div { class: "set-row",
                     span { "{t.language}" }
                     div { class: "seg small", style: "--i: {usize::from(s.lang == Lang::Ja)}; --n: 2",
@@ -235,23 +269,57 @@ pub fn SettingsTab() -> Element {
     }
 }
 
-/// Native colour picker plus a way back to the theme's own colour. `None` = theme default.
+fn token_label(token: Token) -> &'static str {
+    let t = tr();
+    match token {
+        Token::Accent => t.accent,
+        Token::Bg => t.background,
+        Token::Text => t.text_color,
+        Token::Positive => t.positive_color,
+        Token::Negative => t.negative_color,
+    }
+}
+
+/// Colour picker plus a hex field, and a way back to the theme's own colour. `None` = theme default.
 #[component]
 fn ColorRow(label: &'static str, value: String, custom: bool, onpick: EventHandler<Option<String>>) -> Element {
     let t = tr();
+    // What's typed, kept until it parses; follows the picker otherwise.
+    let mut typed = use_signal(|| None::<String>);
+    let shown = typed().unwrap_or_else(|| value.clone());
+    let bad = typed().is_some_and(|v| parse_hex(&v).is_none());
     rsx! {
         div { class: "set-row",
-            span { "{label}" }
-            div { class: "row gap",
-                if custom {
-                    button { class: "link", onclick: move |_| onpick.call(None), "{t.theme_default}" }
-                }
+            span { class: "grow", "{label}" }
+            if custom {
+                button { class: "link", title: "{t.theme_default}", onclick: move |_| {
+                    typed.set(None);
+                    onpick.call(None);
+                }, "↺" }
+            }
+            div { class: if bad { "input hex bad" } else { "input hex" },
                 input {
-                    r#type: "color",
-                    class: "color-pick",
-                    value: "{value}",
-                    oninput: move |e| onpick.call(Some(e.value())),
+                    value: "{shown}",
+                    maxlength: "7",
+                    spellcheck: "false",
+                    oninput: move |e| {
+                        let v = e.value();
+                        if let Some(c) = parse_hex(&v) {
+                            onpick.call(Some(c));
+                        }
+                        typed.set(Some(v));
+                    },
+                    onblur: move |_| typed.set(None),
                 }
+            }
+            input {
+                r#type: "color",
+                class: "color-pick",
+                value: "{value}",
+                oninput: move |e| {
+                    typed.set(None);
+                    onpick.call(Some(e.value()));
+                },
             }
         }
     }

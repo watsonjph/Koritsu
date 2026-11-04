@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod activity;
+mod autostart;
 mod i18n;
 mod icons;
 mod place;
@@ -23,7 +25,7 @@ use pomodoro::{Phase, Pomo};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
-use store::{Kind, Store, Theme};
+use store::{Kind, Store};
 
 /// Wall-clock seconds, refreshed every tick; everything live reads this.
 pub static NOW: GlobalSignal<i64> = Signal::global(store::now);
@@ -101,6 +103,8 @@ fn main() {
     unsafe { std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required") };
 
     let initial = store::load();
+    // Launched by "Start with Windows": go straight to the tray.
+    let hidden = std::env::args().any(|a| a == autostart::HIDDEN_ARG);
     let font = |b: &[u8], w: u32| {
         format!("@font-face{{font-family:'JetBrains Mono';font-weight:{w};src:url(data:font/woff2;base64,{})}}", STANDARD.encode(b))
     };
@@ -116,6 +120,7 @@ fn main() {
         .with_inner_size(LogicalSize::new(360.0, 560.0))
         .with_min_inner_size(LogicalSize::new(320.0, 480.0))
         .with_always_on_top(initial.settings.pinned)
+        .with_visible(!hidden)
         .with_window_icon(dioxus::desktop::tao::window::Icon::from_rgba(icon_rgba(64), 64, 64).ok());
 
     let cfg = Config::new()
@@ -249,16 +254,15 @@ fn App() -> Element {
 
     let t = tr();
     let st = store.read();
-    let theme = theme_class(st.settings.theme);
-    let (positive, negative) = st.settings.mood_colors();
+    let colors = st.settings.css_vars();
     // The header, kanji and quote bar take the running kind's colour; stopping fades back.
-    let mood = st.running.map_or("", |r| if r.kind == Kind::Productive { "moody mood-productive" } else { "moody mood-wasted" });
+    let mood = st.running.as_ref().map_or("", |r| if r.kind == Kind::Productive { "moody mood-productive" } else { "moody mood-wasted" });
     let idx = TABS.iter().position(|x| *x == tab()).unwrap_or(0);
 
     rsx! {
         div {
-            class: "app {theme} {mood}",
-            style: "--productive: {positive}; --wasted: {negative}",
+            class: "app {mood}",
+            style: "{colors}",
             tabindex: "-1",
             onmounted: move |e| async move {
                 let _ = e.set_focus(true).await;
@@ -304,18 +308,8 @@ fn App() -> Element {
                     Tab::Settings => rsx! { settings::SettingsTab {} },
                 }
             }
+            activity::ActivityPrompt {}
         }
-    }
-}
-
-pub fn theme_class(t: Theme) -> &'static str {
-    match t {
-        Theme::Copper => "theme-copper",
-        Theme::Gruvbox => "theme-gruvbox",
-        Theme::Dracula => "theme-dracula",
-        Theme::Nord => "theme-nord",
-        Theme::Catppuccin => "theme-catppuccin",
-        Theme::RosePine => "theme-rosepine",
     }
 }
 
@@ -363,7 +357,7 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
         let finished = pomo.write().tick(&s, now);
         if let Some((phase, log)) = finished {
             if let Some((a, b)) = log {
-                commit(store, |st| st.add_entry(Kind::Productive, a, b, "Pomodoro".into()));
+                commit(store, |st| st.add_entry(Kind::Productive, a, b, st.focus_activity.clone(), "Pomodoro".into()));
             }
             sound::button(&s, "chime");
             let t = tr();
@@ -395,7 +389,7 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
 fn Titlebar() -> Element {
     let store = use_context::<Signal<Store>>();
     let pinned = store.read().settings.pinned;
-    let mood = store.read().running.map(|r| r.kind.class()).unwrap_or("idle");
+    let mood = store.read().running.as_ref().map_or("idle", |r| r.kind.class());
     let t = tr();
     rsx! {
         div { class: "titlebar",
