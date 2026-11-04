@@ -1,6 +1,7 @@
+use crate::i18n::{Tr, tr};
 use crate::icons::{Icon, PAUSE, PLAY, RESET, SKIP};
-use crate::store::{POMO_DEFAULTS, Settings, Store, fmt_clock};
-use crate::{NOW, commit};
+use crate::store::{POMO_DEFAULTS, Settings, Store, fmt_clock, now};
+use crate::{NOW, commit, sound};
 use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -11,11 +12,11 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub fn label(self) -> &'static str {
+    pub fn label(self, t: &Tr) -> &'static str {
         match self {
-            Phase::Focus => "Focus",
-            Phase::Short => "Short Break",
-            Phase::Long => "Long Break",
+            Phase::Focus => t.focus,
+            Phase::Short => t.short_break,
+            Phase::Long => t.long_break,
         }
     }
     fn class(self) -> &'static str {
@@ -109,22 +110,41 @@ impl Pomo {
     }
 }
 
+/// Starts the current phase. Starting focus stops the tracker so the same time isn't counted twice.
+pub fn start(store: Signal<Store>, mut pomo: Signal<Pomo>, now: i64) {
+    if pomo.peek().phase == Phase::Focus && store.peek().running.is_some() {
+        commit(store, |s| s.stop(now));
+    }
+    pomo.write().start(now);
+}
+
+/// Start/pause, shared by the button and the global shortcut.
+pub fn toggle(store: Signal<Store>, mut pomo: Signal<Pomo>) {
+    let now = now();
+    sound::button(&store.peek().settings, "click");
+    if pomo.peek().running() {
+        pomo.write().pause(now);
+    } else {
+        start(store, pomo, now);
+    }
+}
+
 #[component]
 pub fn FocusTab() -> Element {
     let store = use_context::<Signal<Store>>();
     let mut pomo = use_context::<Signal<Pomo>>();
     let mut show_settings = use_signal(|| false);
+    let t = tr();
     let now = NOW();
     let p = pomo();
-    let settings = store.read().settings.clone();
-    let rounds = settings.rounds.max(1);
+    let rounds = store.read().settings.rounds.max(1);
     let filled = if p.phase == Phase::Long { rounds } else { p.done % rounds };
     let pct = 100.0 * (1.0 - p.remaining(now) as f64 / p.total.max(1) as f64);
 
     rsx! {
         div { class: "tab focus-tab",
-            div { class: "pomo-face {p.phase.class()}", style: "--pct: {pct}%",
-                div { class: "caption", "{p.phase.label()}" }
+            div { class: "pomo-face {p.phase.class()}", class: if p.running() { "live" }, style: "--pct: {pct}%",
+                div { class: "caption", "{p.phase.label(t)}" }
                 div { class: "pomo-time", "{fmt_clock(p.remaining(now))}" }
                 div { class: "dots",
                     for i in 0..rounds {
@@ -136,39 +156,40 @@ pub fn FocusTab() -> Element {
             div { class: "row center gap",
                 button {
                     class: "btn icon-btn",
-                    title: "Reset",
-                    onclick: move |_| pomo.set(Pomo::new(&store.read().settings)),
+                    title: "{t.reset}",
+                    onclick: move |_| {
+                        sound::button(&store.peek().settings, "stop");
+                        pomo.set(Pomo::new(&store.peek().settings));
+                    },
                     Icon { d: RESET }
                 }
                 button {
                     class: "btn primary big",
-                    onclick: move |_| {
-                        let now = crate::store::now();
-                        if pomo.peek().running() {
-                            pomo.write().pause(now);
-                        } else {
-                            // Starting focus stops the tracker so the same time isn't counted twice.
-                            if pomo.peek().phase == Phase::Focus && store.peek().running.is_some() {
-                                commit(store, |s| s.stop(now));
-                            }
-                            pomo.write().start(now);
-                        }
-                    },
-                    if p.running() { Icon { d: PAUSE } " Pause" } else { Icon { d: PLAY } " Start" }
+                    onclick: move |_| toggle(store, pomo),
+                    if p.running() {
+                        Icon { d: PAUSE }
+                        "{t.pause}"
+                    } else {
+                        Icon { d: PLAY }
+                        "{t.start}"
+                    }
                 }
                 button {
                     class: "btn icon-btn",
-                    title: "Skip",
-                    onclick: move |_| pomo.write().skip(&store.read().settings),
+                    title: "{t.skip}",
+                    onclick: move |_| {
+                        sound::button(&store.peek().settings, "click");
+                        pomo.write().skip(&store.peek().settings);
+                    },
                     Icon { d: SKIP }
                 }
             }
-            div { class: "section",
+            div { class: if show_settings() { "section open" } else { "section" },
                 button {
                     class: "section-head",
                     onclick: move |_| show_settings.toggle(),
-                    "Timer"
-                    span { class: "muted", if show_settings() { "−" } else { "+" } }
+                    "{t.timer}"
+                    span { class: "chev", "+" }
                 }
                 if show_settings() {
                     TimerSettings {}
@@ -183,6 +204,7 @@ fn TimerSettings() -> Element {
     let store = use_context::<Signal<Store>>();
     let mut pomo = use_context::<Signal<Pomo>>();
     let s = store.read().settings.clone();
+    let t = tr();
 
     // Apply new lengths right away unless a phase is in progress.
     let mut refresh = move || {
@@ -200,13 +222,13 @@ fn TimerSettings() -> Element {
 
     rsx! {
         div { class: "timer-settings",
-            Slider { label: "Focus", color: "var(--focus)", value: s.focus_min, min: 1, max: 90, minutes: true,
+            Slider { label: t.focus, color: "var(--focus)", value: s.focus_min, min: 1, max: 90, minutes: true,
                 oninput: move |v| set(|s| &mut s.focus_min, v) }
-            Slider { label: "Short Break", color: "var(--short)", value: s.short_min, min: 1, max: 30, minutes: true,
+            Slider { label: t.short_break, color: "var(--short)", value: s.short_min, min: 1, max: 30, minutes: true,
                 oninput: move |v| set(|s| &mut s.short_min, v) }
-            Slider { label: "Long Break", color: "var(--long)", value: s.long_min, min: 1, max: 60, minutes: true,
+            Slider { label: t.long_break, color: "var(--long)", value: s.long_min, min: 1, max: 60, minutes: true,
                 oninput: move |v| set(|s| &mut s.long_min, v) }
-            Slider { label: "Rounds", color: "var(--rounds)", value: s.rounds, min: 1, max: 12, minutes: false,
+            Slider { label: t.rounds, color: "var(--rounds)", value: s.rounds, min: 1, max: 12, minutes: false,
                 oninput: move |v| set(|s| &mut s.rounds, v) }
             button {
                 class: "link",
@@ -217,14 +239,14 @@ fn TimerSettings() -> Element {
                     });
                     refresh();
                 },
-                "Reset Defaults"
+                "{t.reset_defaults}"
             }
         }
     }
 }
 
 #[component]
-fn Slider(label: &'static str, color: &'static str, value: u32, min: u32, max: u32, minutes: bool, oninput: EventHandler<u32>) -> Element {
+pub fn Slider(label: &'static str, color: &'static str, value: u32, min: u32, max: u32, minutes: bool, oninput: EventHandler<u32>) -> Element {
     let pct = 100.0 * f64::from(value - min) / f64::from(max - min);
     let shown = if minutes { format!("{value}:00") } else { value.to_string() };
     rsx! {
