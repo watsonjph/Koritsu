@@ -263,7 +263,7 @@ pub fn Slider(label: &'static str, color: &'static str, value: u32, min: u32, ma
     let pct = 100.0 * f64::from(value - min) / f64::from(max - min);
     let shown = if minutes { format!("{value}:00") } else { value.to_string() };
     rsx! {
-        label { class: "slider-row",
+        div { class: "slider-row",
             span { class: "slider-label", "{label}" }
             span { class: "chip", "{shown}" }
             input {

@@ -90,6 +90,10 @@ pub struct Settings {
     pub sound_profile: SoundProfile,
     /// Per-theme colour overrides (`#rrggbb`); anything missing follows the theme.
     pub custom: BTreeMap<Theme, BTreeMap<Token, String>>,
+    pub character: Character,
+    /// Sound when a focus block runs out, and when a break runs out.
+    pub focus_end_sound: Alert,
+    pub break_end_sound: Alert,
     /// Pre-0.3 global overrides; moved into `custom` on load.
     #[serde(skip_serializing)]
     pub positive: Option<String>,
@@ -163,6 +167,7 @@ impl Settings {
     }
 
     fn migrate(&mut self) {
+        self.character.migrate();
         if let Some(c) = self.positive.take() {
             self.set_color(Token::Positive, Some(c));
         }
@@ -186,6 +191,130 @@ pub fn parse_hex(input: &str) -> Option<String> {
 
 pub fn is_hex_color(s: &str) -> bool {
     s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// The pixel-art companion: the sprite sheet in `assets/character.png`, drawn by
+/// `assets/scene.js`. Each colour is optional; `None` keeps the sprite's own colour.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Character {
+    pub show: bool,
+    /// Hair, fox ears and tail share this colour.
+    pub hair: Option<String>,
+    pub skin: Option<String>,
+    pub eyes: Option<String>,
+    /// The hakama and ties.
+    pub outfit: Option<String>,
+    /// What they do while you're productive.
+    pub scene: ProductiveScene,
+    pub weather: Weather,
+}
+
+impl Default for Character {
+    fn default() -> Self {
+        Self { show: true, hair: None, skin: None, eyes: None, outfit: None, scene: ProductiveScene::Fishing, weather: Weather::Auto }
+    }
+}
+
+/// The sprite's own colours, shown in the pickers until you change them.
+pub const SPRITE_HAIR: &str = "#fdd777";
+pub const SPRITE_SKIN: &str = "#fce1c8";
+pub const SPRITE_EYES: &str = "#e1262b";
+pub const SPRITE_OUTFIT: &str = "#e1262b";
+
+impl Character {
+    /// State for `koritsuScene.update`: only the colours you changed, re-validated so a
+    /// hand-edited file can't feed the canvas anything but `#rrggbb`.
+    pub fn to_js(&self) -> serde_json::Value {
+        let pick = |c: &Option<String>| c.as_deref().and_then(parse_hex);
+        serde_json::json!({
+            "hair": pick(&self.hair),
+            "skin": pick(&self.skin),
+            "eyes": pick(&self.eyes),
+            "outfit": pick(&self.outfit),
+        })
+    }
+
+    /// The hand-drawn character's default colours (before the sprite sheet) mean "unset" now.
+    fn migrate(&mut self) {
+        for (field, old) in [(&mut self.hair, "#4a3a6b"), (&mut self.skin, "#f6d5bf"), (&mut self.eyes, "#5b8cff"), (&mut self.outfit, "#f2a65a")] {
+            if field.as_deref() == Some(old) {
+                *field = None;
+            }
+        }
+    }
+}
+
+/// Rain in the scene: occasional rainy spells, never, or always.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Weather {
+    #[default]
+    Auto,
+    Clear,
+    Rain,
+}
+
+impl Weather {
+    pub const ALL: [Weather; 3] = [Weather::Auto, Weather::Clear, Weather::Rain];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Weather::Auto => "auto",
+            Weather::Clear => "clear",
+            Weather::Rain => "rain",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum ProductiveScene {
+    #[default]
+    Fishing,
+    Reading,
+}
+
+/// Phase-end alert, synthesized in `assets/sound.js`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Alert {
+    None,
+    #[default]
+    Chime,
+    Bell,
+    Kalimba,
+    Marimba,
+    Arcade,
+    Gong,
+    Thock,
+}
+
+impl Alert {
+    pub const ALL: [Alert; 8] = [Alert::Chime, Alert::Bell, Alert::Kalimba, Alert::Marimba, Alert::Arcade, Alert::Gong, Alert::Thock, Alert::None];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Alert::None => "none",
+            Alert::Chime => "chime",
+            Alert::Bell => "bell",
+            Alert::Kalimba => "kalimba",
+            Alert::Marimba => "marimba",
+            Alert::Arcade => "arcade",
+            Alert::Gong => "gong",
+            Alert::Thock => "thock",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Alert::None => "—",
+            Alert::Chime => "Chime",
+            Alert::Bell => "Bell",
+            Alert::Kalimba => "Kalimba",
+            Alert::Marimba => "Marimba",
+            Alert::Arcade => "Arcade",
+            Alert::Gong => "Gong",
+            Alert::Thock => "Thock",
+        }
+    }
 }
 
 /// Button-sound character, synthesized in `assets/sound.js`.
@@ -341,6 +470,9 @@ impl Default for Settings {
             window: None,
             sound_profile: SoundProfile::Creamy,
             custom: BTreeMap::new(),
+            character: Character::default(),
+            focus_end_sound: Alert::Kalimba,
+            break_end_sound: Alert::Bell,
             positive: None,
             negative: None,
         }
@@ -734,6 +866,23 @@ mod tests {
         let mut st = Store::default();
         st.remember(Kind::Break, "nap");
         assert!(st.activities(Kind::Break).is_empty());
+    }
+
+    #[test]
+    fn character_js_keeps_only_valid_custom_colours() {
+        let ch = Character { hair: Some("url(evil)".into()), eyes: Some("#ABC".into()), ..Character::default() };
+        let js = ch.to_js();
+        assert!(js["hair"].is_null()); // invalid → the sprite's own colour
+        assert_eq!(js["eyes"], "#aabbcc");
+        assert!(js["skin"].is_null());
+    }
+
+    #[test]
+    fn old_hand_drawn_defaults_become_unset() {
+        let mut s: Settings = serde_json::from_str(r##"{"character":{"hair":"#4a3a6b","skin":"#123456","style":"Bun","pants":"#3a4a6b"}}"##).unwrap();
+        s.migrate();
+        assert_eq!(s.character.hair, None);
+        assert_eq!(s.character.skin.as_deref(), Some("#123456"));
     }
 
     #[test]

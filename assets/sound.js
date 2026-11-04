@@ -115,6 +115,7 @@ window.koritsu = (() => {
     productive: key(190),
     wasted: key(150),
     stop: key(115),
+    break: key(130),
     click: key(210, 0.6),
     tick: (v) => {
       const c = ac(), dest = out(c, v * 0.18), t = c.currentTime;
@@ -127,7 +128,49 @@ window.koritsu = (() => {
     },
   };
 
+  // A soft sine "note" with an optional quieter overtone; used to build the alerts below.
+  function note(c, dest, t, f, peak, decay, type = "sine") {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + decay + 0.05);
+  }
+
+  // Phase-end alerts: longer and more musical than button clicks, so they're noticed.
+  const alerts = {
+    chime: (c, d, t) => [659.25, 987.77].forEach((f, i) => note(c, d, t + i * 0.16, f, 0.5, 0.9)),
+    // Inharmonic partials make it read as struck metal.
+    bell: (c, d, t) => [[880, 0.5, 1.8], [880 * 2.76, 0.18, 1.1], [880 * 5.4, 0.08, 0.6]].forEach(([f, p, dec]) => note(c, d, t, f, p, dec)),
+    kalimba: (c, d, t) => [1046.5, 1318.5, 1568].forEach((f, i) => {
+      note(c, d, t + i * 0.11, f, 0.45, 0.5, "triangle");
+      note(c, d, t + i * 0.11, f * 4, 0.05, 0.08);
+    }),
+    marimba: (c, d, t) => [784, 587.33, 784].forEach((f, i) => {
+      note(c, d, t + i * 0.14, f, 0.55, 0.35);
+      note(c, d, t + i * 0.14, f * 4, 0.08, 0.06);
+    }),
+    // 8-bit "level up" to match the pixel character.
+    arcade: (c, d, t) => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => note(c, d, t + i * 0.07, f, 0.18, 0.12, "square")),
+    gong: (c, d, t) => [[110, 0.6, 2.6], [110 * 1.48, 0.25, 2.0], [110 * 2.3, 0.15, 1.4], [110 * 3.9, 0.06, 0.9]].forEach(([f, p, dec]) => note(c, d, t, f, p, dec)),
+  };
+
   return {
+    alert(name, vol, profile) {
+      try {
+        if (name === "thock") {
+          thock(vol, 160, profile);
+          setTimeout(() => thock(vol, 200, profile), 140);
+          return;
+        }
+        const c = ac(), dest = out(c, vol), t = c.currentTime;
+        alerts[name]?.(c, dest, t);
+      } catch (e) { console.warn("koritsu alert", e); }
+    },
     play(name, vol, profile) {
       try { sounds[name]?.(vol, profile); } catch (e) { console.warn("koritsu sound", e); }
     },

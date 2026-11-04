@@ -188,23 +188,19 @@ pub fn StatsTab() -> Element {
                     }
                 }
             }
-            div { class: "glass-bg",
-                div { class: "grid2",
-                    div { class: "stat wasted",
-                        div { class: "stat-num", "{fmt_dur(wasted)}" }
-                        div { class: "caption", "{t.wasted}" }
-                        div { class: "caption faint", "{this}" }
-                    }
-                    div { class: "stat productive",
-                        div { class: "stat-num", "{fmt_dur(productive)}" }
-                        div { class: "caption", "{t.productive}" }
-                        div { class: "caption faint", "{this}" }
-                    }
+            div { class: "mini-stats",
+                div { class: "mini wasted",
+                    span { class: "mini-num", "{fmt_dur(wasted)}" }
+                    span { class: "caption", "{t.wasted} · {this}" }
+                }
+                div { class: "mini productive",
+                    span { class: "mini-num", "{fmt_dur(productive)}" }
+                    span { class: "caption", "{t.productive} · {this}" }
                 }
                 if rest > 0 {
-                    div { class: "stat slim break",
+                    div { class: "mini break",
+                        span { class: "mini-num", "{fmt_dur(rest)}" }
                         span { class: "caption", "{t.break_time} · {this}" }
-                        span { class: "stat-num small", "{fmt_dur(rest)}" }
                     }
                 }
             }
@@ -336,7 +332,7 @@ fn Chart(period: Period) -> Element {
                         class: if (b.range.0..b.range.1).contains(&now) { "col now" } else { "col" },
                         title: "{tip}",
                         div { class: "half up",
-                            div { class: "stack",
+                            div { class: "bar-stack",
                                 if r > 0 { div { class: "bar break", style: "height: {h(r)}%" } }
                                 div { class: "bar productive", style: "height: {h(p)}%" }
                             }
