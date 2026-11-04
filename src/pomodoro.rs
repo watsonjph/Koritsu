@@ -1,3 +1,4 @@
+use crate::activity::{ASK, Ask};
 use crate::i18n::{Tr, tr};
 use crate::icons::{Icon, PAUSE, PLAY, RESET, SKIP};
 use crate::store::{POMO_DEFAULTS, Settings, Store, fmt_clock, now};
@@ -97,14 +98,14 @@ impl Pomo {
     }
 
     /// Call every tick. When the phase has ended, returns the finished phase and,
-    /// for a focus block, the `[start, end)` to log as productive.
-    pub fn tick(&mut self, s: &Settings, now: i64) -> Option<(Phase, Option<(i64, i64)>)> {
+    /// the `[start, end)` it covered: logged as productive for focus, as break otherwise.
+    pub fn tick(&mut self, s: &Settings, now: i64) -> Option<(Phase, (i64, i64))> {
         let end = self.ends_at.filter(|&e| now >= e)?;
         let finished = self.phase;
-        let log = (finished == Phase::Focus).then(|| {
+        if finished == Phase::Focus {
             self.done += 1;
-            (end - self.total, end)
-        });
+        }
+        let log = (end - self.total, end);
         self.set_up_next(s);
         Some((finished, log))
     }
@@ -138,6 +139,7 @@ pub fn FocusTab() -> Element {
     let now = NOW();
     let p = pomo();
     let rounds = store.read().settings.rounds.max(1);
+    let focus_activity = store.read().focus_activity.clone();
     let filled = if p.phase == Phase::Long { rounds } else { p.done % rounds };
     let pct = 100.0 * (1.0 - p.remaining(now) as f64 / p.total.max(1) as f64);
 
@@ -145,6 +147,9 @@ pub fn FocusTab() -> Element {
         div { class: "tab focus-tab",
             div { class: "pomo-face {p.phase.class()}", class: if p.running() { "live" }, style: "--pct: {pct}%",
                 div { class: "caption", "{p.phase.label(t)}" }
+                if p.phase == Phase::Focus && !focus_activity.is_empty() {
+                    div { class: "activity-now", "{focus_activity}" }
+                }
                 div { class: "pomo-time", "{fmt_clock(p.remaining(now))}" }
                 div { class: "dots",
                     for i in 0..rounds {
@@ -165,7 +170,15 @@ pub fn FocusTab() -> Element {
                 }
                 button {
                     class: "btn primary big",
-                    onclick: move |_| toggle(store, pomo),
+                    onclick: move |_| {
+                        // A fresh focus block asks what it's for; resuming or a break just goes.
+                        let p = *pomo.peek();
+                        if p.phase == Phase::Focus && p.untouched() {
+                            *ASK.write() = Some(Ask::Focus);
+                        } else {
+                            toggle(store, pomo);
+                        }
+                    },
                     if p.running() {
                         Icon { d: PAUSE }
                         "{t.pause}"
@@ -284,13 +297,13 @@ mod tests {
 
         t += 25 * 60;
         let (phase, log) = p.tick(&s, t).unwrap();
-        assert_eq!((phase, log), (Phase::Focus, Some((0, 25 * 60))));
+        assert_eq!((phase, log), (Phase::Focus, (0, 25 * 60)));
         assert_eq!(p.phase, Phase::Short);
         assert!(!p.running()); // next phase waits for Start
 
         p.start(t);
         t += 5 * 60;
-        assert_eq!(p.tick(&s, t), Some((Phase::Short, None))); // breaks aren't logged
+        assert_eq!(p.tick(&s, t), Some((Phase::Short, (t - 5 * 60, t)))); // breaks are logged too
         assert_eq!(p.phase, Phase::Focus);
 
         p.start(t);
@@ -308,8 +321,7 @@ mod tests {
         assert_eq!(p.remaining(5000), 25 * 60 - 600);
         p.start(5000);
         let end = 5000 + 25 * 60 - 600;
-        let (_, log) = p.tick(&s, end + 3).unwrap(); // tick lands a bit late
-        let (a, b) = log.unwrap();
+        let (_, (a, b)) = p.tick(&s, end + 3).unwrap(); // tick lands a bit late
         assert_eq!((b - a, b), (25 * 60, end));
     }
 }
