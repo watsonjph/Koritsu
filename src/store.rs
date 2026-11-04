@@ -76,6 +76,62 @@ pub struct Settings {
     pub lang: Lang,
     /// Last window position and inner size, in physical pixels.
     pub window: Option<Geom>,
+    /// Custom productive / wasted colours (`#rrggbb`); `None` follows the theme.
+    pub positive: Option<String>,
+    pub negative: Option<String>,
+    pub sound_profile: SoundProfile,
+}
+
+impl Settings {
+    /// Productive and wasted colours in effect: the custom ones if valid, else the theme's.
+    pub fn mood_colors(&self) -> (&str, &str) {
+        let (p, n) = self.theme.mood_colors();
+        // Validated because the value is pasted into inline CSS.
+        fn pick<'a>(c: &'a Option<String>, fallback: &'a str) -> &'a str {
+            c.as_deref().filter(|c| is_hex_color(c)).unwrap_or(fallback)
+        }
+        (pick(&self.positive, p), pick(&self.negative, n))
+    }
+}
+
+pub fn is_hex_color(s: &str) -> bool {
+    s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Button-sound character, synthesized in `assets/sound.js`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum SoundProfile {
+    #[default]
+    Creamy,
+    Marble,
+    Clacky,
+    Topre,
+    Pop,
+}
+
+impl SoundProfile {
+    pub const ALL: [SoundProfile; 5] = [SoundProfile::Creamy, SoundProfile::Marble, SoundProfile::Clacky, SoundProfile::Topre, SoundProfile::Pop];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SoundProfile::Creamy => "Creamy",
+            SoundProfile::Marble => "Marble",
+            SoundProfile::Clacky => "Clacky",
+            SoundProfile::Topre => "Topre",
+            SoundProfile::Pop => "Pop",
+        }
+    }
+
+    /// Key in `sound.js`'s profile table.
+    pub fn key(self) -> &'static str {
+        match self {
+            SoundProfile::Creamy => "creamy",
+            SoundProfile::Marble => "marble",
+            SoundProfile::Clacky => "clacky",
+            SoundProfile::Topre => "topre",
+            SoundProfile::Pop => "pop",
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -100,6 +156,19 @@ impl Theme {
             Theme::Nord => "Nord",
             Theme::Catppuccin => "Catppuccin",
             Theme::RosePine => "Rosé Pine",
+        }
+    }
+
+    /// Default (productive, wasted) ink from each theme's own palette; every pair passes a
+    /// colour-blind separation check.
+    pub fn mood_colors(self) -> (&'static str, &'static str) {
+        match self {
+            Theme::Copper => ("#2dd4bf", "#f87171"),
+            Theme::Gruvbox => ("#8ec07c", "#fb4934"),
+            Theme::Dracula => ("#50fa7b", "#ff79c6"),
+            Theme::Nord => ("#88c0d0", "#bf616a"),
+            Theme::Catppuccin => ("#94e2d5", "#f38ba8"),
+            Theme::RosePine => ("#9ccfd8", "#eb6f92"),
         }
     }
 }
@@ -150,6 +219,9 @@ impl Default for Settings {
             theme: Theme::Copper,
             lang: Lang::En,
             window: None,
+            positive: None,
+            negative: None,
+            sound_profile: SoundProfile::Creamy,
         }
     }
 }
@@ -426,5 +498,14 @@ mod tests {
     fn old_files_missing_fields_still_load() {
         let s: Store = serde_json::from_str(r#"{"entries":[]}"#).unwrap();
         assert_eq!(s.settings.rounds, 4);
+    }
+
+    #[test]
+    fn mood_colors_fall_back_to_theme_unless_valid() {
+        let mut s = Settings { theme: Theme::Nord, ..Settings::default() };
+        assert_eq!(s.mood_colors(), ("#88c0d0", "#bf616a"));
+        s.positive = Some("#123abc".into());
+        s.negative = Some("red; background: url(x)".into()); // never reaches the inline style
+        assert_eq!(s.mood_colors(), ("#123abc", "#bf616a"));
     }
 }

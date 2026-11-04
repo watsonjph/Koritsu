@@ -22,8 +22,6 @@
   /* ink (text, icons) vs marks (chart fills) */
   --productive: #2dd4bf;
   --wasted: #f87171;
-  --productive-mark: #0d9488;
-  --wasted-mark: #ef4444;
   --focus: #ef4444;
   --short: #22c55e;
   --long: #06b6d4;
@@ -49,7 +47,18 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .ico { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Layout */
-.app { height: 100vh; display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; transition: background .3s, color .3s; }
+.app {
+  height: 100vh; display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none;
+  /* Defined here, not on :root, so they follow the per-theme / custom colours set inline on .app. */
+  --productive-mark: color-mix(in srgb, var(--productive) 78%, #000);
+  --wasted-mark: color-mix(in srgb, var(--wasted) 85%, #000);
+  --mood: var(--accent-hi);
+  transition: --mood .8s var(--ease), background .3s, color .3s;
+}
+/* Registered so the colour itself can animate between idle / productive / wasted. */
+@property --mood { syntax: "<color>"; inherits: true; initial-value: #e8a866; }
+.app.mood-productive { --mood: var(--productive); }
+.app.mood-wasted { --mood: var(--wasted); }
 .content { flex: 1; overflow-y: auto; overflow-x: hidden; }
 .tab { padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; animation: rise .24s var(--ease); }
 .row { display: flex; align-items: center; }
@@ -66,8 +75,17 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 /* Titlebar (kopuz components/layout/titlebar.rs) */
 .titlebar { height: 36px; flex: none; display: flex; align-items: stretch; background: rgba(0, 0, 0, 0.25); border-bottom: 1px solid var(--border); }
 .drag { flex: 1; display: flex; align-items: center; gap: 8px; padding-left: 12px; cursor: default; }
-.brand { font-weight: 700; letter-spacing: 0.02em; }
-.kanji { color: var(--accent-hi); }
+.logo { position: relative; display: flex; align-items: center; gap: 8px; overflow: hidden; padding: 2px 0; animation: flare 1s var(--ease); }
+.brand { font-weight: 700; letter-spacing: 0.02em; transition: color .8s var(--ease); }
+.moody .brand { color: var(--mood); }
+.kanji { color: var(--mood); }
+.moody .kanji { animation: breathe 3.2s ease-in-out infinite; }
+/* A band of light sweeps across the logo whenever the mood changes. */
+.logo::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: overlay;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .85) 50%, transparent 70%);
+  transform: translateX(-130%); animation: sweep 1s .05s var(--ease) forwards;
+}
 .tb-btn { width: 40px; display: grid; place-items: center; color: rgba(255, 255, 255, 0.3); transition: background .15s, color .15s; }
 .tb-btn:hover { color: rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0.06); }
 .tb-btn.on { color: var(--accent-hi); }
@@ -158,7 +176,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .track-btn.wasted { color: var(--wasted); --glow: var(--wasted); }
 .track-btn:hover { background: var(--surface-2); }
 .track-btn.active { background: color-mix(in srgb, var(--glow) 15%, transparent); border-color: color-mix(in srgb, var(--glow) 40%, transparent); animation: glow 2.4s ease-in-out infinite; }
-.quote { text-align: left; padding: 12px 14px; border-left: 2px solid var(--accent); background: var(--surface); border-radius: 0 10px 10px 0; color: rgba(255, 255, 255, 0.75); font-size: 12px; line-height: 1.55; animation: rise .35s var(--ease); transition: color .2s; }
+.quote { text-align: left; padding: 12px 14px; border-left: 2px solid var(--mood); background: var(--surface); border-radius: 0 10px 10px 0; color: rgba(255, 255, 255, 0.75); font-size: 12px; line-height: 1.55; animation: rise .35s var(--ease); transition: color .2s; }
 .quote:hover { color: var(--text); }
 
 /* Focus tab */
@@ -230,6 +248,15 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .knob::after { content: ""; position: absolute; inset: 1px; border-radius: 50%; background: var(--productive); transform: scale(0); transition: transform .3s var(--ease); }
 .knob.on { border-color: transparent; }
 .knob.on::after { transform: scale(1.25); }
+.set-row.stack { flex-direction: column; align-items: stretch; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn { padding: 5px 10px; border-radius: 7px; font-size: 11px; background: var(--surface-2); color: var(--muted); transition: background .2s, color .2s, box-shadow .2s, transform .12s var(--ease); }
+.chip-btn:hover { color: var(--text); }
+.chip-btn.on { color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.chip-btn:active { transform: scale(.95); }
+.color-pick { -webkit-appearance: none; appearance: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; overflow: hidden; }
+.color-pick::-webkit-color-swatch-wrapper { padding: 0; }
+.color-pick::-webkit-color-swatch { border: 2px solid var(--border-2); border-radius: 50%; }
 .set-note { display: flex; flex-direction: column; gap: 4px; padding: 0 14px 4px; font-size: 11px; }
 .swatches, .corners { display: flex; gap: 6px; }
 .swatch-btn { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, var(--accent) 50%, var(--bg) 50%); box-shadow: 0 0 0 1px var(--border-2); transition: box-shadow .2s, transform .12s var(--ease); }
@@ -250,6 +277,9 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 @keyframes pop { from { opacity: 0; transform: scale(.96) translateY(6px); } }
 @keyframes grow { from { transform: scaleY(0); } }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
+@keyframes sweep { to { transform: translateX(130%); } }
+@keyframes flare { 25% { text-shadow: 0 0 14px var(--mood), 0 0 2px var(--mood); } }
+@keyframes breathe { 50% { text-shadow: 0 0 10px color-mix(in srgb, var(--mood) 70%, transparent); } }
 @keyframes glow { 50% { box-shadow: 0 0 18px -4px color-mix(in srgb, var(--glow) 55%, transparent); } }
 
 @media (prefers-reduced-motion: reduce) {

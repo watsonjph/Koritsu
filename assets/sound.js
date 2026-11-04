@@ -43,20 +43,48 @@ window.koritsu = (() => {
     src.start(t);
   }
 
-  function thock(vol, pitch) {
-    const c = ac(), dest = out(c, vol), t = c.currentTime;
-    body(c, dest, t, pitch, 0.9, 0.11);
-    noise(c, dest, t, 1800, 0.5, 0.035);
+  // Switch characters. pitch: body tone multiplier · decay: how long the body rings ·
+  // cutoff/click: brightness and loudness of the contact noise · release: up-stroke level.
+  const profiles = {
+    creamy: { pitch: 1, decay: 0.11, cutoff: 1800, click: 0.5, release: 0.25 },
+    marble: { pitch: 0.75, decay: 0.17, cutoff: 1100, click: 0.35, release: 0.3 },
+    clacky: { pitch: 1.7, decay: 0.05, cutoff: 6000, click: 0.95, release: 0.55 },
+    topre: { pitch: 0.9, decay: 0.08, cutoff: 800, click: 0.18, release: 0.08 },
+  };
+
+  function thock(vol, pitch, profile) {
+    const p = profiles[profile] ?? profiles.creamy;
+    const c = ac(), dest = out(c, vol), t = c.currentTime, f = pitch * p.pitch;
+    body(c, dest, t, f, 0.9, p.decay);
+    noise(c, dest, t, p.cutoff, p.click, 0.035);
     // release: higher, softer, ~80ms later
-    body(c, dest, t + 0.08, pitch * 1.35, 0.25, 0.06);
-    noise(c, dest, t + 0.08, 2600, 0.15, 0.02);
+    body(c, dest, t + 0.08, f * 1.35, p.release, 0.06);
+    noise(c, dest, t + 0.08, p.cutoff * 1.4, p.click * 0.3, 0.02);
   }
 
+  // A soft bubble: a sine that glides up and fades.
+  function pop(vol, pitch) {
+    const c = ac(), dest = out(c, vol), t = c.currentTime;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(pitch * 2, t);
+    o.frequency.exponentialRampToValueAtTime(pitch * 5, t + 0.07);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.7, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + 0.1);
+  }
+
+  const key = (pitch, scale = 1) => (v, profile) =>
+    profile === "pop" ? pop(v * scale, pitch) : thock(v * scale, pitch, profile);
+
   const sounds = {
-    productive: (v) => thock(v, 190),
-    wasted: (v) => thock(v, 150),
-    stop: (v) => thock(v, 115),
-    click: (v) => thock(v * 0.6, 210),
+    productive: key(190),
+    wasted: key(150),
+    stop: key(115),
+    click: key(210, 0.6),
     tick: (v) => {
       const c = ac(), dest = out(c, v * 0.18), t = c.currentTime;
       body(c, dest, t, 1400, 0.6, 0.03, 1);
@@ -69,8 +97,8 @@ window.koritsu = (() => {
   };
 
   return {
-    play(name, vol) {
-      try { sounds[name]?.(vol); } catch (e) { console.warn("koritsu sound", e); }
+    play(name, vol, profile) {
+      try { sounds[name]?.(vol, profile); } catch (e) { console.warn("koritsu sound", e); }
     },
   };
 })();

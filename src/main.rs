@@ -248,12 +248,17 @@ fn App() -> Element {
     });
 
     let t = tr();
-    let theme = theme_class(store.read().settings.theme);
+    let st = store.read();
+    let theme = theme_class(st.settings.theme);
+    let (positive, negative) = st.settings.mood_colors();
+    // The header, kanji and quote bar take the running kind's colour; stopping fades back.
+    let mood = st.running.map_or("", |r| if r.kind == Kind::Productive { "moody mood-productive" } else { "moody mood-wasted" });
     let idx = TABS.iter().position(|x| *x == tab()).unwrap_or(0);
 
     rsx! {
         div {
-            class: "app {theme}",
+            class: "app {theme} {mood}",
+            style: "--productive: {positive}; --wasted: {negative}",
             tabindex: "-1",
             onmounted: move |e| async move {
                 let _ = e.set_focus(true).await;
@@ -350,7 +355,7 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
     if p.running() {
         let ticking = if p.phase == Phase::Focus { s.tick_work } else { s.tick_break };
         if ticking && p.remaining(now) > 0 {
-            sound::play_raw("tick", s.volume);
+            sound::play_raw("tick", s.volume, s.sound_profile);
         }
     }
 
@@ -390,12 +395,19 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
 fn Titlebar() -> Element {
     let store = use_context::<Signal<Store>>();
     let pinned = store.read().settings.pinned;
+    let mood = store.read().running.map(|r| r.kind.class()).unwrap_or("idle");
     let t = tr();
     rsx! {
         div { class: "titlebar",
             div { class: "drag", onmousedown: move |_| window().drag(),
-                span { class: "brand", "Koritsu" }
-                span { class: "kanji", "効率" }
+                // Re-keyed on every mood change so the shine sweep replays; the colour itself
+                // is inherited from `.app` and transitions smoothly.
+                for m in [mood] {
+                    span { key: "{m}", class: "logo",
+                        span { class: "brand", "Koritsu" }
+                        span { class: "kanji", "効率" }
+                    }
+                }
             }
             button {
                 class: if pinned { "tb-btn on" } else { "tb-btn" },

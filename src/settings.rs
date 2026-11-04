@@ -1,7 +1,7 @@
 use crate::i18n::{EN, JA, LANG, fill, tr};
 use crate::icons::{Icon, PLUS, TRASH};
 use crate::place::{self, Corner};
-use crate::store::{self, Lang, Settings, Store, Theme};
+use crate::store::{self, Lang, Settings, SoundProfile, Store, Theme};
 use crate::{GLOBAL_KEYS, HotkeysOk, commit, set_pinned, sound, theme_class};
 use dioxus::desktop::window;
 use dioxus::prelude::*;
@@ -15,6 +15,7 @@ pub fn SettingsTab() -> Element {
     let mut exported = use_signal(|| None::<Result<PathBuf, String>>);
     let t = tr();
     let s = store.read().settings.clone();
+    let (positive, negative) = s.mood_colors();
 
     // Flip a bool setting.
     let flip = move |field: fn(&mut Settings) -> &mut bool| {
@@ -59,7 +60,27 @@ pub fn SettingsTab() -> Element {
                             }
                         },
                         // Preview on release, not on every step of the drag.
-                        onchange: move |_| sound::play_raw("productive", store.peek().settings.volume),
+                        onchange: move |_| {
+                            let s = &store.peek().settings;
+                            sound::play_raw("productive", s.volume, s.sound_profile);
+                        },
+                    }
+                }
+                div { class: "set-row stack",
+                    span { "{t.button_sound}" }
+                    div { class: "chips",
+                        for profile in SoundProfile::ALL {
+                            button {
+                                key: "{profile.key()}",
+                                class: if s.sound_profile == profile { "chip-btn on" } else { "chip-btn" },
+                                onclick: move |_| {
+                                    commit(store, |st| st.settings.sound_profile = profile);
+                                    // Always preview, even with button sounds off: this is the picker.
+                                    sound::play_raw("productive", store.peek().settings.volume, profile);
+                                },
+                                "{profile.name()}"
+                            }
+                        }
                     }
                 }
             }
@@ -80,6 +101,10 @@ pub fn SettingsTab() -> Element {
                         }
                     }
                 }
+                ColorRow { label: t.positive_color, value: positive.to_string(), custom: s.positive.is_some(),
+                    onpick: move |c| commit(store, |st| st.settings.positive = c) }
+                ColorRow { label: t.negative_color, value: negative.to_string(), custom: s.negative.is_some(),
+                    onpick: move |c| commit(store, |st| st.settings.negative = c) }
                 div { class: "set-row",
                     span { "{t.language}" }
                     div { class: "seg small", style: "--i: {usize::from(s.lang == Lang::Ja)}; --n: 2",
@@ -204,6 +229,28 @@ pub fn SettingsTab() -> Element {
                         span { "{action}" }
                         kbd { "{keys}" }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Native colour picker plus a way back to the theme's own colour. `None` = theme default.
+#[component]
+fn ColorRow(label: &'static str, value: String, custom: bool, onpick: EventHandler<Option<String>>) -> Element {
+    let t = tr();
+    rsx! {
+        div { class: "set-row",
+            span { "{label}" }
+            div { class: "row gap",
+                if custom {
+                    button { class: "link", onclick: move |_| onpick.call(None), "{t.theme_default}" }
+                }
+                input {
+                    r#type: "color",
+                    class: "color-pick",
+                    value: "{value}",
+                    oninput: move |e| onpick.call(Some(e.value())),
                 }
             }
         }
