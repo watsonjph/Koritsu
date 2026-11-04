@@ -112,7 +112,7 @@ pub fn SettingsTab() -> Element {
                             button {
                                 key: "{theme.name()}",
                                 class: if s.theme == theme { "swatch-btn on" } else { "swatch-btn" },
-                                style: "--accent: {theme.color(Token::Accent)}; --bg: {theme.color(Token::Bg)}",
+                                style: "--accent: {s.color_for(theme, Token::Accent)}; --bg: {s.color_for(theme, Token::Bg)}",
                                 title: "{theme.name()}",
                                 onclick: move |_| commit(store, |st| st.settings.theme = theme),
                             }
@@ -277,6 +277,7 @@ fn token_label(token: Token) -> &'static str {
         Token::Text => t.text_color,
         Token::Positive => t.positive_color,
         Token::Negative => t.negative_color,
+        Token::Break => t.break_color,
     }
 }
 

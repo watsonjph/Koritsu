@@ -1,5 +1,5 @@
 use crate::activity;
-use crate::i18n::{Tr, fill, tr};
+use crate::i18n::{Tr, fill, kind_label, tr};
 use crate::icons::{Icon, PENCIL, PLUS, TRASH};
 use crate::store::{Entry, Kind, Period, Store, fmt_dur, local_ts, today};
 use crate::{NOW, commit};
@@ -82,19 +82,19 @@ impl Draft {
     }
 }
 
-fn local(ts: i64) -> DateTime<Local> {
+pub(crate) fn local(ts: i64) -> DateTime<Local> {
     DateTime::from_timestamp(ts, 0).unwrap_or_default().with_timezone(&Local)
 }
 
 /// One chart column: axis label (may be empty), tooltip name, `[start, end)`.
-struct Bucket {
-    label: String,
-    name: String,
-    range: (i64, i64),
+pub(crate) struct Bucket {
+    pub label: String,
+    pub name: String,
+    pub range: (i64, i64),
 }
 
 /// Hours of the day, days of the week/month, or months of the year.
-fn buckets(p: Period, today: NaiveDate, t: &Tr) -> Vec<Bucket> {
+pub(crate) fn buckets(p: Period, today: NaiveDate, t: &Tr) -> Vec<Bucket> {
     let midnight = |d: NaiveDate| local_ts(d, NaiveTime::MIN);
     let (first, next) = p.bounds(today);
     match p {
@@ -152,6 +152,7 @@ pub fn StatsTab() -> Element {
     let st = store.read();
     let wasted = st.total(Kind::Wasted, range, now);
     let productive = st.total(Kind::Productive, range, now);
+    let rest = st.total(Kind::Break, range, now);
 
     let nudge = match (wasted, productive) {
         (0, 0) => fill(t.nudge_none, &[("p", this)]),
@@ -200,8 +201,15 @@ pub fn StatsTab() -> Element {
                         div { class: "caption faint", "{this}" }
                     }
                 }
+                if rest > 0 {
+                    div { class: "stat slim break",
+                        span { class: "caption", "{t.break_time} · {this}" }
+                        span { class: "stat-num small", "{fmt_dur(rest)}" }
+                    }
+                }
             }
             p { class: "nudge", "{nudge}" }
+            crate::summary::Highlights { period: p }
             Chart { period: p }
             if !(wasted_by.is_empty() && productive_by.is_empty()) {
                 div { class: "breakdown",
@@ -225,7 +233,9 @@ pub fn StatsTab() -> Element {
                     li { key: "{e.id}", class: "item",
                         span { class: "dot-kind {e.kind.class()}" }
                         div { class: "grow",
-                            div { class: "item-text", "{activity::label(&e.activity)}" }
+                            div { class: "item-text",
+                                if e.kind == Kind::Break && e.activity.is_empty() { "{t.break_time}" } else { "{activity::label(&e.activity)}" }
+                            }
                             div { class: "muted small",
                                 {format!("{}–{}", local(e.start).format(t.entry_fmt), local(e.end).format("%H:%M"))}
                                 if !e.note.is_empty() { " · {e.note}" }
@@ -289,21 +299,27 @@ fn Chart(period: Period) -> Element {
         let rows = st.breakdown(kind, range, now);
         let total: i64 = rows.iter().map(|(_, s)| s).sum();
         let top: Vec<String> = rows.iter().take(2).map(|(n, s)| format!("{} {}", activity::label(n), fmt_dur(*s))).collect();
-        let arrow = if kind == Kind::Productive { "▲" } else { "▼" };
+        let arrow = match kind {
+            Kind::Productive => "▲",
+            Kind::Wasted => "▼",
+            Kind::Break => "☕",
+        };
         let text = if top.is_empty() { format!("{arrow} 0m") } else { format!("{arrow} {} · {}", fmt_dur(total), top.join(", ")) };
         (total, text)
     };
-    let cols: Vec<(Bucket, i64, i64, String)> = buckets(period, today(), t)
+    let cols: Vec<(Bucket, i64, i64, i64, String)> = buckets(period, today(), t)
         .into_iter()
         .map(|b| {
             let (p, pt) = line(Kind::Productive, b.range);
             let (w, wt) = line(Kind::Wasted, b.range);
-            let tip = format!("{}\n{pt}\n{wt}", b.name);
-            (b, p, w, tip)
+            let r = st.total(Kind::Break, b.range, now);
+            let rt = if r > 0 { format!("\n☕ {}", fmt_dur(r)) } else { String::new() };
+            let tip = format!("{}\n{pt}\n{wt}{rt}", b.name);
+            (b, p, w, r, tip)
         })
         .collect();
     // Scale against at least an hour so a 2-minute bucket doesn't fill the chart.
-    let peak = cols.iter().map(|(_, p, w, _)| (*p).max(*w)).max().unwrap_or(0).max(3600) as f64;
+    let peak = cols.iter().map(|(_, p, w, r, _)| (p + r).max(*w)).max().unwrap_or(0).max(3600) as f64;
     let h = |v: i64| v as f64 / peak * 100.0;
 
     rsx! {
@@ -311,14 +327,20 @@ fn Chart(period: Period) -> Element {
             div { class: "legend",
                 span { span { class: "swatch productive" } "▲ {t.productive}" }
                 span { span { class: "swatch wasted" } "▼ {t.wasted}" }
+                span { span { class: "swatch break" } "☕ {t.break_time}" }
             }
             div { class: "plot",
-                for (i, (b, p, w, tip)) in cols.into_iter().enumerate() {
+                for (i, (b, p, w, r, tip)) in cols.into_iter().enumerate() {
                     div {
                         key: "{period:?}-{i}",
                         class: if (b.range.0..b.range.1).contains(&now) { "col now" } else { "col" },
                         title: "{tip}",
-                        div { class: "half up", div { class: "bar productive", style: "height: {h(p)}%" } }
+                        div { class: "half up",
+                            div { class: "stack",
+                                if r > 0 { div { class: "bar break", style: "height: {h(r)}%" } }
+                                div { class: "bar productive", style: "height: {h(p)}%" }
+                            }
+                        }
                         div { class: "half down", div { class: "bar wasted", style: "height: {h(w)}%" } }
                         span { class: "tick", "{b.label}" }
                     }
@@ -403,16 +425,16 @@ fn EntryForm(draft: Signal<Option<Draft>>) -> Element {
             }
         }
     };
-    let ki = usize::from(d.kind == Kind::Wasted);
+    let ki = Kind::ALL.iter().position(|k| *k == d.kind).unwrap_or(0);
     let suggestions = store.read().activities(d.kind).to_vec();
 
     rsx! {
         Overlay { onclose: move |_| draft.set(None),
             form { class: "popup", onsubmit: save,
                 h3 { if d.id.is_some() { "{t.edit_time}" } else { "{t.add_time}" } }
-                div { class: "seg", style: "--i: {ki}; --n: 2",
+                div { class: "seg", style: "--i: {ki}; --n: 3",
                     span { class: "seg-pill {d.kind.class()}" }
-                    for kind in [Kind::Productive, Kind::Wasted] {
+                    for kind in Kind::ALL {
                         button {
                             key: "{kind.class()}",
                             r#type: "button",
@@ -422,11 +444,11 @@ fn EntryForm(draft: Signal<Option<Draft>>) -> Element {
                                     d.kind = kind;
                                 }
                             },
-                            if kind == Kind::Productive { "{t.productive}" } else { "{t.wasted}" }
+                            "{kind_label(kind)}"
                         }
                     }
                 }
-                div { class: "input",
+                div { class: if d.kind == Kind::Break { "input hidden" } else { "input" },
                     input {
                         placeholder: "{t.activity}",
                         list: "activity-suggestions",

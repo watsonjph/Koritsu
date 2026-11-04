@@ -10,6 +10,7 @@ mod settings;
 mod sound;
 mod stats;
 mod store;
+mod summary;
 mod todos;
 mod track;
 
@@ -355,10 +356,15 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
 
     if p.ends_at.is_some_and(|e| now >= e) {
         let finished = pomo.write().tick(&s, now);
-        if let Some((phase, log)) = finished {
-            if let Some((a, b)) = log {
-                commit(store, |st| st.add_entry(Kind::Productive, a, b, st.focus_activity.clone(), "Pomodoro".into()));
-            }
+        if let Some((phase, (a, b))) = finished {
+            // Focus blocks count as productive; breaks are logged as break time.
+            commit(store, |st| {
+                if phase == Phase::Focus {
+                    st.add_entry(Kind::Productive, a, b, st.focus_activity.clone(), "Pomodoro".into());
+                } else {
+                    st.add_entry(Kind::Break, a, b, String::new(), "Pomodoro".into());
+                }
+            });
             sound::button(&s, "chime");
             let t = tr();
             notify(store, if phase == Phase::Focus { t.focus_done } else { t.break_done }.into());

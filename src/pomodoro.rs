@@ -98,14 +98,14 @@ impl Pomo {
     }
 
     /// Call every tick. When the phase has ended, returns the finished phase and,
-    /// for a focus block, the `[start, end)` to log as productive.
-    pub fn tick(&mut self, s: &Settings, now: i64) -> Option<(Phase, Option<(i64, i64)>)> {
+    /// the `[start, end)` it covered: logged as productive for focus, as break otherwise.
+    pub fn tick(&mut self, s: &Settings, now: i64) -> Option<(Phase, (i64, i64))> {
         let end = self.ends_at.filter(|&e| now >= e)?;
         let finished = self.phase;
-        let log = (finished == Phase::Focus).then(|| {
+        if finished == Phase::Focus {
             self.done += 1;
-            (end - self.total, end)
-        });
+        }
+        let log = (end - self.total, end);
         self.set_up_next(s);
         Some((finished, log))
     }
@@ -297,13 +297,13 @@ mod tests {
 
         t += 25 * 60;
         let (phase, log) = p.tick(&s, t).unwrap();
-        assert_eq!((phase, log), (Phase::Focus, Some((0, 25 * 60))));
+        assert_eq!((phase, log), (Phase::Focus, (0, 25 * 60)));
         assert_eq!(p.phase, Phase::Short);
         assert!(!p.running()); // next phase waits for Start
 
         p.start(t);
         t += 5 * 60;
-        assert_eq!(p.tick(&s, t), Some((Phase::Short, None))); // breaks aren't logged
+        assert_eq!(p.tick(&s, t), Some((Phase::Short, (t - 5 * 60, t)))); // breaks are logged too
         assert_eq!(p.phase, Phase::Focus);
 
         p.start(t);
@@ -321,8 +321,7 @@ mod tests {
         assert_eq!(p.remaining(5000), 25 * 60 - 600);
         p.start(5000);
         let end = 5000 + 25 * 60 - 600;
-        let (_, log) = p.tick(&s, end + 3).unwrap(); // tick lands a bit late
-        let (a, b) = log.unwrap();
+        let (_, (a, b)) = p.tick(&s, end + 3).unwrap(); // tick lands a bit late
         assert_eq!((b - a, b), (25 * 60, end));
     }
 }

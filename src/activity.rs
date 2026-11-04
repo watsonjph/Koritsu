@@ -52,7 +52,7 @@ pub fn ActivityPrompt() -> Element {
     let known = store.read().activities(kind).to_vec();
     let title = match ask {
         Ask::Track(Kind::Productive) => t.ask_productive,
-        Ask::Track(Kind::Wasted) => t.ask_wasted,
+        Ask::Track(Kind::Wasted | Kind::Break) => t.ask_wasted,
         Ask::Focus => t.ask_focus,
     };
     let mut close = move || {

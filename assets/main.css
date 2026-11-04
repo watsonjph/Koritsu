@@ -39,6 +39,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
   --border-2: color-mix(in srgb, var(--text) 11%, transparent);
   --muted: color-mix(in srgb, var(--text) 45%, transparent);
   --productive-mark: color-mix(in srgb, var(--productive) 78%, #000);
+  --break-mark: color-mix(in srgb, var(--break) 80%, #000);
   --wasted-mark: color-mix(in srgb, var(--wasted) 85%, #000);
   --mood: var(--accent-hi);
   transition: --mood .8s var(--ease), background .3s, color .3s;
@@ -90,12 +91,14 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 }
 .seg-pill.productive { background: color-mix(in srgb, var(--productive) 18%, transparent); }
 .seg-pill.wasted { background: color-mix(in srgb, var(--wasted) 18%, transparent); }
+.seg-pill.break { background: color-mix(in srgb, var(--break) 18%, transparent); }
 .tabs { margin: 10px 14px 0; flex: none; }
 .seg-btn { position: relative; flex: 1; min-width: 0; padding: 6px 0; color: var(--muted); font-size: 12px; transition: color .2s; display: grid; place-items: center; white-space: nowrap; }
 .seg-btn:hover { color: color-mix(in srgb, var(--text) 85%, transparent); }
 .seg-btn.on { color: var(--text); }
 .seg-btn.on.productive { color: var(--productive); }
 .seg-btn.on.wasted { color: var(--wasted); }
+.seg-btn.on.break { color: var(--break); }
 .seg.small .seg-btn { padding: 4px 10px; font-size: 11px; }
 
 /* Buttons and inputs */
@@ -144,6 +147,9 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
   backdrop-filter: blur(14px); box-shadow: 0 10px 32px rgba(0, 0, 0, .24);
 }
 .stat .caption { letter-spacing: .08em; }
+.stat.slim { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; }
+.stat-num.small { font-size: 15px; margin: 0; }
+.input.hidden { display: none; }
 .stat-num { font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
 .nudge { font-size: 12px; color: color-mix(in srgb, var(--text) 75%, transparent); }
 
@@ -208,6 +214,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .dot-kind { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .dot-kind.productive { background: var(--productive); }
 .dot-kind.wasted { background: var(--wasted); }
+.dot-kind.break { background: var(--break); }
 
 /* Diverging chart: productive up, wasted down */
 .chart { display: flex; flex-direction: column; gap: 6px; }
@@ -216,6 +223,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .swatch { width: 8px; height: 8px; border-radius: 2px; }
 .swatch.productive { background: var(--productive-mark); }
 .swatch.wasted { background: var(--wasted-mark); }
+.swatch.break { background: var(--break-mark); }
 .plot { display: flex; gap: 2px; height: 110px; }
 .col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; border-radius: 4px; transition: background .15s; }
 .col:hover { background: var(--surface); }
@@ -223,6 +231,11 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .half.up { align-items: flex-end; border-bottom: 1px solid var(--border-2); }
 .half.down { align-items: flex-start; }
 .bar { width: 70%; max-width: 12px; transition: height .45s var(--ease); }
+/* Break stacks on productive above the baseline, with a 2px gap between the two fills. */
+.stack { width: 70%; max-width: 12px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.stack .bar { width: 100%; max-width: none; }
+.bar.break { background: var(--break-mark); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: grow .5s var(--ease); }
+.stack .bar.break + .bar.productive { border-radius: 0; }
 .bar.productive { background: var(--productive-mark); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: grow .5s var(--ease); }
 .bar.wasted { background: var(--wasted-mark); border-radius: 0 0 4px 4px; transform-origin: top; animation: grow .5s var(--ease); }
 .tick { height: 14px; font-size: 9px; color: var(--muted); line-height: 14px; }
@@ -273,6 +286,26 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .input.hex input { padding: 5px 0; font-size: 11px; text-transform: lowercase; }
 .input.hex.bad { border-color: color-mix(in srgb, var(--wasted) 70%, transparent); }
 
+/* Highlights (Apple Health-style summary cards) */
+.highlights { display: flex; flex-direction: column; gap: 8px; }
+.hl-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); animation: rise .3s var(--ease) both; --c: var(--accent); }
+.hl-card.productive { --c: var(--productive); }
+.hl-card.wasted { --c: var(--wasted); }
+.hl-card.break { --c: var(--break); }
+.hl-head { display: flex; align-items: center; gap: 8px; }
+.hl-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--c); }
+.hl-badge { margin-left: auto; font-size: 10px; padding: 2px 6px; border-radius: 5px; }
+.hl-badge.good { color: var(--productive); background: color-mix(in srgb, var(--productive) 14%, transparent); }
+.hl-badge.bad { color: var(--wasted); background: color-mix(in srgb, var(--wasted) 14%, transparent); }
+.hl-text { font-size: 12px; line-height: 1.5; }
+.hl-bar { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+.hl-bar.now { color: var(--text); }
+.hl-bar-top { display: flex; justify-content: space-between; }
+.hl-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+.hl-track { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.hl-fill { display: block; height: 100%; border-radius: 3px; background: color-mix(in srgb, var(--c) 40%, transparent); transform-origin: left; animation: grow-x .6s var(--ease); transition: width .45s var(--ease); }
+.hl-bar.now .hl-fill { background: var(--c); }
+
 .set-note { display: flex; flex-direction: column; gap: 4px; padding: 0 14px 4px; font-size: 11px; }
 .swatches, .corners { display: flex; gap: 6px; }
 .swatch-btn { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, var(--accent) 50%, var(--bg) 50%); box-shadow: 0 0 0 1px var(--border-2); transition: box-shadow .2s, transform .12s var(--ease); }
@@ -292,6 +325,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { opacity: 0; transform: scale(.96) translateY(6px); } }
 @keyframes grow { from { transform: scaleY(0); } }
+@keyframes grow-x { from { transform: scaleX(0); } }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
 @keyframes sweep { to { transform: translateX(130%); } }
 @keyframes flare { 25% { text-shadow: 0 0 14px var(--mood), 0 0 2px var(--mood); } }

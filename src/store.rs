@@ -10,13 +10,18 @@ use std::{fs, io, path::PathBuf};
 pub enum Kind {
     Productive,
     Wasted,
+    /// Rest: logged automatically by finished Pomodoro breaks, or added by hand.
+    Break,
 }
 
 impl Kind {
+    pub const ALL: [Kind; 3] = [Kind::Productive, Kind::Wasted, Kind::Break];
+
     pub fn class(self) -> &'static str {
         match self {
             Kind::Productive => "productive",
             Kind::Wasted => "wasted",
+            Kind::Break => "break",
         }
     }
 }
@@ -100,10 +105,11 @@ pub enum Token {
     Text,
     Positive,
     Negative,
+    Break,
 }
 
 impl Token {
-    pub const ALL: [Token; 5] = [Token::Accent, Token::Bg, Token::Text, Token::Positive, Token::Negative];
+    pub const ALL: [Token; 6] = [Token::Accent, Token::Bg, Token::Text, Token::Positive, Token::Negative, Token::Break];
 
     /// The CSS variable it drives.
     pub fn var(self) -> &'static str {
@@ -113,20 +119,26 @@ impl Token {
             Token::Text => "--text",
             Token::Positive => "--productive",
             Token::Negative => "--wasted",
+            Token::Break => "--break",
         }
     }
 }
 
 impl Settings {
-    /// The colour in effect for `token`: this theme's override if valid, else the theme default.
+    /// The colour in effect for `token` in the current theme.
     pub fn color(&self, token: Token) -> &str {
+        self.color_for(self.theme, token)
+    }
+
+    /// `theme`'s override for `token` if valid, else that theme's default.
+    pub fn color_for(&self, theme: Theme, token: Token) -> &str {
         self.custom
-            .get(&self.theme)
+            .get(&theme)
             .and_then(|m| m.get(&token))
             .map(String::as_str)
             // Validated because the value is pasted into inline CSS.
             .filter(|c| is_hex_color(c))
-            .unwrap_or(self.theme.color(token))
+            .unwrap_or(theme.color(token))
     }
 
     pub fn is_custom(&self, token: Token) -> bool {
@@ -181,19 +193,37 @@ pub fn is_hex_color(s: &str) -> bool {
 pub enum SoundProfile {
     #[default]
     Creamy,
+    Buttery,
+    Thocky,
     Marble,
+    Asmr,
+    Crisp,
     Clacky,
     Topre,
     Pop,
 }
 
 impl SoundProfile {
-    pub const ALL: [SoundProfile; 5] = [SoundProfile::Creamy, SoundProfile::Marble, SoundProfile::Clacky, SoundProfile::Topre, SoundProfile::Pop];
+    pub const ALL: [SoundProfile; 9] = [
+        SoundProfile::Creamy,
+        SoundProfile::Buttery,
+        SoundProfile::Thocky,
+        SoundProfile::Marble,
+        SoundProfile::Asmr,
+        SoundProfile::Crisp,
+        SoundProfile::Clacky,
+        SoundProfile::Topre,
+        SoundProfile::Pop,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             SoundProfile::Creamy => "Creamy",
+            SoundProfile::Buttery => "Buttery",
+            SoundProfile::Thocky => "Thocky",
             SoundProfile::Marble => "Marble",
+            SoundProfile::Asmr => "ASMR",
+            SoundProfile::Crisp => "Crisp",
             SoundProfile::Clacky => "Clacky",
             SoundProfile::Topre => "Topre",
             SoundProfile::Pop => "Pop",
@@ -204,7 +234,11 @@ impl SoundProfile {
     pub fn key(self) -> &'static str {
         match self {
             SoundProfile::Creamy => "creamy",
+            SoundProfile::Buttery => "buttery",
+            SoundProfile::Thocky => "thocky",
             SoundProfile::Marble => "marble",
+            SoundProfile::Asmr => "asmr",
+            SoundProfile::Crisp => "crisp",
             SoundProfile::Clacky => "clacky",
             SoundProfile::Topre => "topre",
             SoundProfile::Pop => "pop",
@@ -237,16 +271,16 @@ impl Theme {
         }
     }
 
-    /// Theme defaults. Accent/bg/text from kopuz's themes; productive/wasted ink from each
-    /// theme's own palette, every pair checked for colour-blind separation.
+    /// Theme defaults. Accent/bg/text from kopuz's themes; productive/wasted/break ink from
+    /// each theme's own palette, every trio checked for colour-blind separation.
     pub fn color(self, token: Token) -> &'static str {
-        let [accent, bg, text, positive, negative] = match self {
-            Theme::Copper => ["#d9842f", "#000000", "#ffffff", "#2dd4bf", "#f87171"],
-            Theme::Gruvbox => ["#458588", "#282828", "#ebdbb2", "#8ec07c", "#fb4934"],
-            Theme::Dracula => ["#bd93f9", "#282a36", "#f8f8f2", "#50fa7b", "#ff79c6"],
-            Theme::Nord => ["#88c0d0", "#2e3440", "#d8dee9", "#88c0d0", "#bf616a"],
-            Theme::Catppuccin => ["#89b4fa", "#1e1e2e", "#cdd6f4", "#94e2d5", "#f38ba8"],
-            Theme::RosePine => ["#c4a7e7", "#191724", "#e0def4", "#9ccfd8", "#eb6f92"],
+        let [accent, bg, text, positive, negative, rest] = match self {
+            Theme::Copper => ["#d9842f", "#000000", "#ffffff", "#2dd4bf", "#f87171", "#a78bfa"],
+            Theme::Gruvbox => ["#458588", "#282828", "#ebdbb2", "#8ec07c", "#fb4934", "#fabd2f"],
+            Theme::Dracula => ["#bd93f9", "#282a36", "#f8f8f2", "#50fa7b", "#ff79c6", "#8be9fd"],
+            Theme::Nord => ["#88c0d0", "#2e3440", "#d8dee9", "#88c0d0", "#bf616a", "#ebcb8b"],
+            Theme::Catppuccin => ["#89b4fa", "#1e1e2e", "#cdd6f4", "#94e2d5", "#f38ba8", "#89b4fa"],
+            Theme::RosePine => ["#c4a7e7", "#191724", "#e0def4", "#9ccfd8", "#eb6f92", "#f6c177"],
         };
         match token {
             Token::Accent => accent,
@@ -254,6 +288,7 @@ impl Theme {
             Token::Text => text,
             Token::Positive => positive,
             Token::Negative => negative,
+            Token::Break => rest,
         }
     }
 }
@@ -354,33 +389,36 @@ impl Store {
         self.running = Some(Running { kind, start: now, activity: activity.trim().to_string() });
     }
 
+    /// Breaks have no named activities.
     pub fn activities(&self, kind: Kind) -> &[String] {
         match kind {
             Kind::Productive => &self.productive_activities,
             Kind::Wasted => &self.wasted_activities,
+            Kind::Break => &[],
         }
     }
 
-    fn activities_mut(&mut self, kind: Kind) -> &mut Vec<String> {
+    fn activities_mut(&mut self, kind: Kind) -> Option<&mut Vec<String>> {
         match kind {
-            Kind::Productive => &mut self.productive_activities,
-            Kind::Wasted => &mut self.wasted_activities,
+            Kind::Productive => Some(&mut self.productive_activities),
+            Kind::Wasted => Some(&mut self.wasted_activities),
+            Kind::Break => None,
         }
     }
 
     /// Moves `name` to the front of the list (adding it the first time). Case-insensitive.
     pub fn remember(&mut self, kind: Kind, name: &str) {
         let name = name.trim();
-        if name.is_empty() {
-            return;
+        if let Some(list) = self.activities_mut(kind).filter(|_| !name.is_empty()) {
+            list.retain(|a| !a.eq_ignore_ascii_case(name));
+            list.insert(0, name.to_string());
         }
-        let list = self.activities_mut(kind);
-        list.retain(|a| !a.eq_ignore_ascii_case(name));
-        list.insert(0, name.to_string());
     }
 
     pub fn forget(&mut self, kind: Kind, name: &str) {
-        self.activities_mut(kind).retain(|a| a != name);
+        if let Some(list) = self.activities_mut(kind) {
+            list.retain(|a| a != name);
+        }
     }
 
     /// Seconds per activity of `kind` inside the range, largest first. Names group
@@ -432,6 +470,17 @@ pub enum Period {
 
 impl Period {
     pub const ALL: [Period; 4] = [Period::Day, Period::Week, Period::Month, Period::Year];
+
+    /// A day inside the period before the one containing `today`.
+    pub fn previous(self, today: NaiveDate) -> NaiveDate {
+        self.bounds(today).0 - Days::new(1)
+    }
+
+    /// Days of the period that have started by `today` (the whole period if it's in the past).
+    pub fn days_elapsed(self, period_day: NaiveDate, today: NaiveDate) -> i64 {
+        let (first, next) = self.bounds(period_day);
+        (next.min(today + Days::new(1)) - first).num_days().max(1)
+    }
 
     /// `[first day, first day of the next period)`; weeks start Monday.
     pub fn bounds(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
@@ -510,10 +559,7 @@ pub fn to_csv(entries: &[Entry]) -> String {
     rows.sort_by_key(|e| e.start);
     let mut out = String::from("kind,start,end,minutes,note\n");
     for e in rows {
-        let kind = match e.kind {
-            Kind::Productive => "productive",
-            Kind::Wasted => "wasted",
-        };
+        let kind = e.kind.class();
         out += &format!("{kind},{},{},{},{}\n", local(e.start), local(e.end), (e.end - e.start) / 60, field(&e.note));
     }
     out
@@ -665,6 +711,29 @@ mod tests {
         s.migrate();
         assert_eq!(s.color(Token::Positive), "#112233");
         assert!(s.positive.is_none());
+    }
+
+    #[test]
+    fn previous_periods_and_elapsed_days() {
+        let d = |y, m, day| NaiveDate::from_ymd_opt(y, m, day).unwrap();
+        let today = d(2026, 11, 5); // a Thursday
+        assert_eq!(Period::Day.previous(today), d(2026, 11, 4));
+        assert_eq!(Period::Week.bounds(Period::Week.previous(today)).0, d(2026, 10, 26));
+        assert_eq!(Period::Month.previous(d(2026, 1, 15)), d(2025, 12, 31));
+        assert_eq!(Period::Week.days_elapsed(today, today), 4); // Mon–Thu
+        assert_eq!(Period::Week.days_elapsed(Period::Week.previous(today), today), 7);
+        assert_eq!(Period::Year.days_elapsed(d(2025, 6, 1), today), 365);
+    }
+
+    #[test]
+    fn swatch_colours_follow_overrides_per_theme() {
+        let mut s = Settings::default();
+        s.set_color(Token::Accent, Some("#8a6be1".into()));
+        assert_eq!(s.color_for(Theme::Copper, Token::Accent), "#8a6be1");
+        assert_eq!(s.color_for(Theme::Nord, Token::Accent), "#88c0d0");
+        let mut st = Store::default();
+        st.remember(Kind::Break, "nap");
+        assert!(st.activities(Kind::Break).is_empty());
     }
 
     #[test]
