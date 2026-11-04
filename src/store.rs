@@ -12,12 +12,6 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Kind::Productive => "Productive",
-            Kind::Wasted => "Wasted",
-        }
-    }
     pub fn class(self) -> &'static str {
         match self {
             Kind::Productive => "productive",
@@ -69,6 +63,60 @@ pub struct Settings {
     pub rounds: u32,
     pub pinned: bool,
     pub quotes: Vec<String>,
+    pub auto_work: bool,
+    pub auto_break: bool,
+    pub tick_work: bool,
+    pub tick_break: bool,
+    pub notifications: bool,
+    pub sounds: bool,
+    /// 0–100.
+    pub volume: u32,
+    pub snap: bool,
+    pub theme: Theme,
+    pub lang: Lang,
+    /// Last window position and inner size, in physical pixels.
+    pub window: Option<Geom>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Theme {
+    #[default]
+    Copper,
+    Gruvbox,
+    Dracula,
+    Nord,
+    Catppuccin,
+    RosePine,
+}
+
+impl Theme {
+    pub const ALL: [Theme; 6] = [Theme::Copper, Theme::Gruvbox, Theme::Dracula, Theme::Nord, Theme::Catppuccin, Theme::RosePine];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Theme::Copper => "Copper",
+            Theme::Gruvbox => "Gruvbox",
+            Theme::Dracula => "Dracula",
+            Theme::Nord => "Nord",
+            Theme::Catppuccin => "Catppuccin",
+            Theme::RosePine => "Rosé Pine",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Lang {
+    #[default]
+    En,
+    Ja,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Geom {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
 }
 
 pub const POMO_DEFAULTS: (u32, u32, u32, u32) = (25, 5, 15, 4);
@@ -91,6 +139,17 @@ impl Default for Settings {
             ]
             .map(String::from)
             .to_vec(),
+            auto_work: false,
+            auto_break: false,
+            tick_work: false,
+            tick_break: false,
+            notifications: true,
+            sounds: true,
+            volume: 60,
+            snap: true,
+            theme: Theme::Copper,
+            lang: Lang::En,
+            window: None,
         }
     }
 }
@@ -163,24 +222,6 @@ pub enum Period {
 impl Period {
     pub const ALL: [Period; 4] = [Period::Day, Period::Week, Period::Month, Period::Year];
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Period::Day => "Day",
-            Period::Week => "Week",
-            Period::Month => "Month",
-            Period::Year => "Year",
-        }
-    }
-
-    pub fn this(self) -> &'static str {
-        match self {
-            Period::Day => "today",
-            Period::Week => "this week",
-            Period::Month => "this month",
-            Period::Year => "this year",
-        }
-    }
-
     /// `[first day, first day of the next period)`; weeks start Monday.
     pub fn bounds(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
         let ymd = |y, m| NaiveDate::from_ymd_opt(y, m, 1).expect("valid date");
@@ -240,6 +281,41 @@ pub fn fmt_clock(secs: i64) -> String {
     let s = secs.max(0);
     let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
     if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
+}
+
+/// Entries as CSV (local times), oldest first.
+pub fn to_csv(entries: &[Entry]) -> String {
+    fn field(s: &str) -> String {
+        if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
+    }
+    let local = |ts: i64| {
+        chrono::DateTime::from_timestamp(ts, 0)
+            .unwrap_or_default()
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string()
+    };
+    let mut rows: Vec<&Entry> = entries.iter().collect();
+    rows.sort_by_key(|e| e.start);
+    let mut out = String::from("kind,start,end,minutes,note\n");
+    for e in rows {
+        let kind = match e.kind {
+            Kind::Productive => "productive",
+            Kind::Wasted => "wasted",
+        };
+        out += &format!("{kind},{},{},{},{}\n", local(e.start), local(e.end), (e.end - e.start) / 60, field(&e.note));
+    }
+    out
+}
+
+/// Writes the CSV to Downloads (or the data dir) and returns its path.
+pub fn export_csv(store: &Store) -> io::Result<PathBuf> {
+    let dir = directories::UserDirs::new()
+        .and_then(|u| u.download_dir().map(PathBuf::from))
+        .unwrap_or_else(data_dir);
+    let p = dir.join(format!("koritsu-{}.csv", Local::now().format("%Y-%m-%d-%H%M")));
+    fs::write(&p, to_csv(&store.entries))?;
+    Ok(p)
 }
 
 pub fn data_dir() -> PathBuf {
@@ -332,6 +408,18 @@ mod tests {
         assert_eq!(fmt_dur(0), "0m");
         assert_eq!(fmt_clock(3723), "1:02:03");
         assert_eq!(fmt_clock(65), "01:05");
+    }
+
+    #[test]
+    fn csv_quotes_awkward_notes() {
+        let mut s = Store::default();
+        s.add_entry(Kind::Wasted, 0, 600, "reels, \"just one\"".into());
+        s.add_entry(Kind::Productive, -600, 0, "plain".into());
+        let csv = to_csv(&s.entries);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "kind,start,end,minutes,note");
+        assert!(lines[1].starts_with("productive,") && lines[1].ends_with(",10,plain"));
+        assert!(lines[2].ends_with(",10,\"reels, \"\"just one\"\"\""));
     }
 
     #[test]

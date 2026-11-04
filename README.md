@@ -16,3 +16,14 @@ Data lives in `%APPDATA%\koritsu\Koritsu\data\koritsu.json`; the path is also sh
 ```bash
 cargo test
 ```
+
+## Keybinds
+
+| Keys | Action |
+|---|---|
+| Ctrl+Alt+P / W | Start productive / wasted (works anywhere) |
+| Ctrl+Alt+S | Stop tracking |
+| Ctrl+Alt+F | Start / pause the Pomodoro |
+| Ctrl+Alt+K | Show / hide Koritsu |
+| Ctrl+1–5 | Switch tab |
+| Esc | Close dialog, or hide to tray |
