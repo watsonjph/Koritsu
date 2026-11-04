@@ -2,7 +2,7 @@
 
 A tiny always-on-top widget that counts the time you waste and the time you spend well.
 
-<p align="center"><img src="docs/screenshot.png" alt="Koritsu's Track tab: a fox girl strolling on a dock at night, a timer, and today's productive, wasted and break totals" width="360"></p>
+<p align="center"><img src="docs/screenshot.png" width="360"></p>
 
 ## Download
 
