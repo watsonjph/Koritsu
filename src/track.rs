@@ -1,6 +1,6 @@
 use crate::activity::{self, ASK, Ask};
-use crate::i18n::tr;
-use crate::icons::{Icon, PLAY, STOP};
+use crate::i18n::{kind_label, tr};
+use crate::icons::{Icon, MOON, PLAY, STOP};
 use crate::pomodoro::{Phase, Pomo};
 use crate::store::{Kind, Period, Store, fmt_clock, fmt_dur, now, today};
 use crate::{NOW, commit, sound};
@@ -41,41 +41,50 @@ pub fn stop(store: Signal<Store>) {
 #[component]
 pub fn TrackTab() -> Element {
     let store = use_context::<Signal<Store>>();
+    let pomo = use_context::<Signal<Pomo>>();
     let mut quote = use_signal(|| now() as usize);
     let t = tr();
     let now = NOW();
     let st = store.read();
     let running = st.running.clone();
     let day = Period::Day.range(today());
-    let wasted = st.total(Kind::Wasted, day, now);
-    let productive = st.total(Kind::Productive, day, now);
+    let totals = Kind::ALL.map(|k| (k, st.total(k, day, now)));
     let quotes = &st.settings.quotes;
     let quote_text = (!quotes.is_empty()).then(|| quotes[quote() % quotes.len()].clone());
-    let label = |k: Kind| if k == Kind::Productive { t.productive } else { t.wasted };
+    let show_scene = st.settings.character.show;
     let active = |k: Kind| running.as_ref().is_some_and(|r| r.kind == k);
+    let (status, clock) = match &running {
+        Some(r) if r.activity.is_empty() => (kind_label(r.kind).to_string(), fmt_clock(now - r.start)),
+        Some(r) => (format!("{} · {}", kind_label(r.kind), r.activity), fmt_clock(now - r.start)),
+        None => (t.idle.to_string(), "00:00".to_string()),
+    };
+    let kind_class = running.as_ref().map_or("idle", |r| r.kind.class());
 
     rsx! {
         div { class: "tab track-tab",
-            div { class: "timer-face",
-                match &running {
-                    Some(r) => rsx! {
-                        div { class: "caption {r.kind.class()}",
-                            span { class: "live-dot {r.kind.class()}" }
-                            "{label(r.kind)} · {t.running}"
+            // With the character shown, the timer sits on the scene like a game HUD.
+            if show_scene {
+                div { class: "scene-card",
+                    crate::scene::Scene {}
+                    div { class: "hud",
+                        span { class: "hud-pill {kind_class}",
+                            if running.is_some() { span { class: "live-dot {kind_class}" } }
+                            "{status}"
                         }
-                        div { class: "big-clock", "{fmt_clock(now - r.start)}" }
-                        if !r.activity.is_empty() {
-                            div { class: "activity-now", "{r.activity}" }
-                        }
-                    },
-                    None => rsx! {
-                        div { class: "caption", "{t.idle}" }
-                        div { class: "big-clock dim", "00:00" }
-                    },
+                        span { class: "hud-pill hud-clock", "{clock}" }
+                    }
+                }
+            } else {
+                div { class: "timer-face",
+                    div { class: "caption {kind_class}",
+                        if running.is_some() { span { class: "live-dot {kind_class}" } }
+                        "{status}"
+                    }
+                    div { class: if running.is_some() { "big-clock" } else { "big-clock dim" }, "{clock}" }
                 }
             }
-            div { class: "row gap",
-                for kind in [Kind::Productive, Kind::Wasted] {
+            div { class: "track-buttons",
+                for kind in Kind::ALL {
                     button {
                         key: "{kind.class()}",
                         class: "track-btn {kind.class()}",
@@ -83,6 +92,9 @@ pub fn TrackTab() -> Element {
                         onclick: move |_| {
                             if is_running(store, kind) {
                                 stop(store);
+                            } else if kind == Kind::Break {
+                                // Breaks have no activity to ask about.
+                                start(store, pomo, kind, String::new());
                             } else {
                                 *ASK.write() = Some(Ask::Track(kind));
                             }
@@ -91,21 +103,20 @@ pub fn TrackTab() -> Element {
                             Icon { d: STOP }
                             "{t.stop}"
                         } else {
-                            Icon { d: PLAY }
-                            "{label(kind)}"
+                            Icon { d: if kind == Kind::Break { MOON } else { PLAY } }
+                            "{kind_label(kind)}"
                         }
                     }
                 }
             }
-            div { class: "glass-bg",
-                div { class: "grid2",
-                    div { class: "stat productive",
-                        div { class: "stat-num", "{fmt_dur(productive)}" }
-                        div { class: "caption", "{t.productive} · {t.this[0]}" }
-                    }
-                    div { class: "stat wasted",
-                        div { class: "stat-num", "{fmt_dur(wasted)}" }
-                        div { class: "caption", "{t.wasted} · {t.this[0]}" }
+            div { class: "today",
+                span { class: "caption", "{t.period_now[0]}" }
+                div { class: "mini-stats",
+                    for (kind, secs) in totals {
+                        div { key: "{kind.class()}", class: "mini {kind.class()}",
+                            span { class: "mini-num", "{fmt_dur(secs)}" }
+                            span { class: "caption", "{kind_label(kind)}" }
+                        }
                     }
                 }
             }

@@ -6,6 +6,7 @@ mod i18n;
 mod icons;
 mod place;
 mod pomodoro;
+mod scene;
 mod settings;
 mod sound;
 mod stats;
@@ -34,13 +35,16 @@ static SAVE_ERR: GlobalSignal<Option<String>> = Signal::global(|| None);
 
 const CSS: &str = include_str!("../assets/main.css");
 const SOUND_JS: &str = include_str!("../assets/sound.js");
+const SCENE_JS: &str = include_str!("../assets/scene.js");
+const SHEET_PNG: &[u8] = include_bytes!("../assets/character.png");
 const TRAY_SHOW: &str = "koritsu-show";
 const TRAY_QUIT: &str = "koritsu-quit";
 
 /// System-wide shortcuts: (accelerator, label). Descriptions live in `Tr::key_actions`.
-pub const GLOBAL_KEYS: [(&str, &str); 5] = [
+pub const GLOBAL_KEYS: [(&str, &str); 6] = [
     ("ctrl+alt+P", "Ctrl+Alt+P"),
     ("ctrl+alt+W", "Ctrl+Alt+W"),
+    ("ctrl+alt+B", "Ctrl+Alt+B"),
     ("ctrl+alt+S", "Ctrl+Alt+S"),
     ("ctrl+alt+F", "Ctrl+Alt+F"),
     ("ctrl+alt+K", "Ctrl+Alt+K"),
@@ -48,7 +52,7 @@ pub const GLOBAL_KEYS: [(&str, &str); 5] = [
 
 /// Which global shortcuts registered (another app may own one).
 #[derive(Clone, Copy)]
-pub struct HotkeysOk(pub [bool; 5]);
+pub struct HotkeysOk(pub [bool; 6]);
 
 /// Mutate the store and persist it. A failed save shows a banner instead of vanishing.
 pub fn commit(mut store: Signal<Store>, f: impl FnOnce(&mut Store)) {
@@ -110,9 +114,10 @@ fn main() {
         format!("@font-face{{font-family:'JetBrains Mono';font-weight:{w};src:url(data:font/woff2;base64,{})}}", STANDARD.encode(b))
     };
     let head = format!(
-        "<style>{}{}{CSS}</style><script>{SOUND_JS}</script>",
+        "<style>{}{}{CSS}</style><script>{SOUND_JS}</script><script>window.KORITSU_SHEET=\"data:image/png;base64,{}\";</script><script>{SCENE_JS}</script>",
         font(include_bytes!("../assets/fonts/jetbrains-mono-latin-400-normal.woff2"), 400),
         font(include_bytes!("../assets/fonts/jetbrains-mono-latin-700-normal.woff2"), 700),
+        STANDARD.encode(SHEET_PNG),
     );
 
     let win = WindowBuilder::new()
@@ -211,15 +216,20 @@ fn App() -> Element {
         }),
         dioxus::desktop::use_global_shortcut(GLOBAL_KEYS[2].0, move |s| {
             if pressed(s) {
-                track::stop(store);
+                track::toggle(store, pomo, Kind::Break);
             }
         }),
         dioxus::desktop::use_global_shortcut(GLOBAL_KEYS[3].0, move |s| {
             if pressed(s) {
-                pomodoro::toggle(store, pomo);
+                track::stop(store);
             }
         }),
         dioxus::desktop::use_global_shortcut(GLOBAL_KEYS[4].0, move |s| {
+            if pressed(s) {
+                pomodoro::toggle(store, pomo);
+            }
+        }),
+        dioxus::desktop::use_global_shortcut(GLOBAL_KEYS[5].0, move |s| {
             if pressed(s) {
                 toggle_window();
             }
@@ -257,7 +267,7 @@ fn App() -> Element {
     let st = store.read();
     let colors = st.settings.css_vars();
     // The header, kanji and quote bar take the running kind's colour; stopping fades back.
-    let mood = st.running.as_ref().map_or("", |r| if r.kind == Kind::Productive { "moody mood-productive" } else { "moody mood-wasted" });
+    let mood = st.running.as_ref().map_or(String::new(), |r| format!("moody mood-{}", r.kind.class()));
     let idx = TABS.iter().position(|x| *x == tab()).unwrap_or(0);
 
     rsx! {
@@ -365,7 +375,7 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
                     st.add_entry(Kind::Break, a, b, String::new(), "Pomodoro".into());
                 }
             });
-            sound::button(&s, "chime");
+            sound::alert(&s, if phase == Phase::Focus { s.focus_end_sound } else { s.break_end_sound });
             let t = tr();
             notify(store, if phase == Phase::Focus { t.focus_done } else { t.break_done }.into());
             let auto = if pomo.peek().phase == Phase::Focus { s.auto_work } else { s.auto_break };

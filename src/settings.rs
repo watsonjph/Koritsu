@@ -1,7 +1,7 @@
 use crate::i18n::{EN, JA, LANG, fill, tr};
 use crate::icons::{Icon, PLUS, TRASH};
 use crate::place::{self, Corner};
-use crate::store::{self, Lang, Settings, SoundProfile, Store, Theme, Token, parse_hex};
+use crate::store::{self, Alert, Character, Lang, ProductiveScene, Settings, SoundProfile, Store, Theme, Token, Weather, parse_hex};
 use crate::{GLOBAL_KEYS, HotkeysOk, autostart, commit, set_pinned, sound};
 use dioxus::desktop::window;
 use dioxus::prelude::*;
@@ -13,8 +13,11 @@ pub fn SettingsTab() -> Element {
     let hotkeys = use_context::<HotkeysOk>();
     let mut quote = use_signal(String::new);
     let mut exported = use_signal(|| None::<Result<PathBuf, String>>);
+    // The volume while the slider is being dragged; saved once, on release.
+    let mut dragging = use_signal(|| None::<u32>);
     let t = tr();
     let s = store.read().settings.clone();
+    let volume = dragging().unwrap_or(s.volume);
     // Read from the registry, which is what Windows will actually do at login.
     let mut autostart_on = use_signal(autostart::enabled);
     let mut autostart_err = use_signal(|| None::<String>);
@@ -27,7 +30,15 @@ pub fn SettingsTab() -> Element {
         });
         sound::button(&store.peek().settings, "click");
     };
-    let in_app = [("Ctrl+1–5", t.key_actions[5]), ("Esc", t.key_actions[6])];
+    let in_app = [("Ctrl+1–5", t.key_actions[6]), ("Esc", t.key_actions[7])];
+    // (label, field, colour shown, whether it's been changed from the sprite's own)
+    let char_rows: Vec<(&str, CharField, String, bool)> = character_colors(t)
+        .into_iter()
+        .map(|(label, field, sprite)| {
+            let set = field(&mut s.character.clone()).clone();
+            (label, field, set.clone().unwrap_or_else(|| sprite.to_string()), set.is_some())
+        })
+        .collect();
 
     rsx! {
         div { class: "tab settings-tab",
@@ -63,27 +74,32 @@ pub fn SettingsTab() -> Element {
             div { class: "caption", "{t.sec_sound}" }
             div { class: "group",
                 ToggleRow { label: t.button_sounds, on: s.sounds, ontoggle: move |_| flip(|s| &mut s.sounds) }
-                label { class: "set-row",
+                div { class: "set-row",
                     span { "{t.volume}" }
                     input {
                         r#type: "range",
                         class: "slider mini",
-                        style: "--c: var(--accent); --pct: {s.volume}%",
+                        style: "--c: var(--accent); --pct: {volume}%",
                         min: "0",
                         max: "100",
-                        value: "{s.volume}",
+                        value: "{volume}",
+                        // Track the drag locally; saving (and re-rendering) on every step made the thumb fight the pointer.
                         oninput: move |e| {
                             if let Ok(v) = e.value().parse::<u32>() {
-                                commit(store, |st| st.settings.volume = v.min(100));
+                                dragging.set(Some(v.min(100)));
                             }
                         },
-                        // Preview on release, not on every step of the drag.
                         onchange: move |_| {
+                            if let Some(v) = dragging.take() {
+                                commit(store, |st| st.settings.volume = v);
+                            }
                             let s = &store.peek().settings;
                             sound::play_raw("productive", s.volume, s.sound_profile);
                         },
                     }
                 }
+                AlertRow { label: t.focus_end_sound, value: s.focus_end_sound, onpick: move |a| commit(store, |st| st.settings.focus_end_sound = a) }
+                AlertRow { label: t.break_end_sound, value: s.break_end_sound, onpick: move |a| commit(store, |st| st.settings.break_end_sound = a) }
                 div { class: "set-row stack",
                     span { "{t.button_sound}" }
                     div { class: "chips",
@@ -98,6 +114,52 @@ pub fn SettingsTab() -> Element {
                                 },
                                 "{profile.name()}"
                             }
+                        }
+                    }
+                }
+            }
+
+            div { class: "caption", "{t.sec_character}" }
+            div { class: "group",
+                ToggleRow { label: t.show_character, on: s.character.show, ontoggle: move |_| flip(|s| &mut s.character.show) }
+                if s.character.show {
+                    crate::scene::Scene {}
+                    div { class: "set-row",
+                        span { "{t.when_productive}" }
+                        div { class: "seg small", style: "--i: {usize::from(s.character.scene == ProductiveScene::Reading)}; --n: 2",
+                            span { class: "seg-pill" }
+                            for (scene, name) in [(ProductiveScene::Fishing, t.fishing), (ProductiveScene::Reading, t.reading)] {
+                                button {
+                                    key: "{name}",
+                                    class: if s.character.scene == scene { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| commit(store, |st| st.settings.character.scene = scene),
+                                    "{name}"
+                                }
+                            }
+                        }
+                    }
+                    div { class: "set-row",
+                        span { "{t.weather}" }
+                        div { class: "seg small", style: "--i: {Weather::ALL.iter().position(|w| *w == s.character.weather).unwrap_or(0)}; --n: 3",
+                            span { class: "seg-pill" }
+                            for (i, weather) in Weather::ALL.into_iter().enumerate() {
+                                button {
+                                    key: "{weather.key()}",
+                                    class: if s.character.weather == weather { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| commit(store, |st| st.settings.character.weather = weather),
+                                    "{t.weathers[i]}"
+                                }
+                            }
+                        }
+                    }
+                    for (label, field, value, custom) in char_rows {
+                        ColorRow {
+                            key: "{label}",
+                            label,
+                            value,
+                            custom,
+                            // `None` (the reset button) goes back to the sprite's own colour.
+                            onpick: move |c: Option<String>| commit(store, |st| *field(&mut st.settings.character) = c),
                         }
                     }
                 }
@@ -262,6 +324,42 @@ pub fn SettingsTab() -> Element {
                     div { key: "{keys}", class: "set-row",
                         span { "{action}" }
                         kbd { "{keys}" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+type CharField = fn(&mut Character) -> &mut Option<String>;
+
+/// (label, field, the sprite's own colour)
+fn character_colors(t: &crate::i18n::Tr) -> [(&'static str, CharField, &'static str); 4] {
+    [
+        (t.hair_color, |c| &mut c.hair, store::SPRITE_HAIR),
+        (t.skin, |c| &mut c.skin, store::SPRITE_SKIN),
+        (t.eye_color, |c| &mut c.eyes, store::SPRITE_EYES),
+        (t.outfit, |c| &mut c.outfit, store::SPRITE_OUTFIT),
+    ]
+}
+
+/// Pick a phase-end alert; choosing one plays it.
+#[component]
+fn AlertRow(label: &'static str, value: Alert, onpick: EventHandler<Alert>) -> Element {
+    let store = use_context::<Signal<Store>>();
+    rsx! {
+        div { class: "set-row stack",
+            span { "{label}" }
+            div { class: "chips",
+                for a in Alert::ALL {
+                    button {
+                        key: "{a.key()}",
+                        class: if value == a { "chip-btn on" } else { "chip-btn" },
+                        onclick: move |_| {
+                            onpick.call(a);
+                            sound::alert(&store.peek().settings, a);
+                        },
+                        "{a.name()}"
                     }
                 }
             }

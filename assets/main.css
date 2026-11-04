@@ -48,15 +48,16 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 @property --mood { syntax: "<color>"; inherits: true; initial-value: #e8a866; }
 .app.mood-productive { --mood: var(--productive); }
 .app.mood-wasted { --mood: var(--wasted); }
-.content { flex: 1; overflow-y: auto; overflow-x: hidden; }
-.tab { padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; animation: rise .24s var(--ease); }
+.app.mood-break { --mood: var(--break); }
+/* Always reserve the scrollbar's space so content width never jumps when it appears. */
+.content { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+.tab { padding: 14px 14px 24px 16px; display: flex; flex-direction: column; gap: 16px; animation: rise .24s var(--ease); }
 .row { display: flex; align-items: center; }
 .row.center { justify-content: center; }
 .row.between { justify-content: space-between; }
 .row.end { justify-content: flex-end; }
 .gap { gap: 8px; }
 .grow { flex: 1; min-width: 0; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .muted { color: var(--muted); }
 .small { font-size: 11px; }
 .empty { color: var(--muted); text-align: center; padding: 18px 0; font-size: 12px; }
@@ -125,49 +126,52 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .tag { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 .tag.wasted, .caption.wasted { color: var(--wasted); }
 .caption.productive { color: var(--productive); }
+.caption.break { color: var(--break); }
 .caption { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .caption.faint { color: color-mix(in srgb, var(--text) 30%, transparent); }
 
-/* CanvasUI-style stat cards: big numeral, tiny mono caption, frosted glass over a soft glow + grain */
-.glass-bg {
-  position: relative; padding: 10px; border-radius: 14px; overflow: hidden;
-  background:
-    radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--productive) 22%, transparent), transparent 55%),
-    radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--wasted) 22%, transparent), transparent 55%),
-    radial-gradient(circle at 60% 10%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 50%),
-    color-mix(in srgb, var(--text) 2%, transparent);
-}
-.glass-bg::before {
-  content: ""; position: absolute; inset: 0; opacity: .18; pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-.stat {
-  position: relative; padding: 12px; border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
-  backdrop-filter: blur(14px); box-shadow: 0 10px 32px rgba(0, 0, 0, .24);
-}
-.stat .caption { letter-spacing: .08em; }
-.stat.slim { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; }
-.stat-num.small { font-size: 15px; margin: 0; }
-.input.hidden { display: none; }
-.stat-num { font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+/* Plain day/period totals: a number and a caption, nothing else. */
+.today { display: flex; flex-direction: column; gap: 8px; }
+.mini-stats { display: flex; gap: 18px; padding: 0 2px; }
+.today .mini-stats { justify-content: space-between; }
+.mini { display: flex; flex-direction: column; gap: 2px; }
+.mini-num { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.mini .caption::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.mini.productive { --c: var(--productive); }
+.mini.wasted { --c: var(--wasted); }
+.mini.break { --c: var(--break); }
+
+/* Pixel-art companion: integer-scaled by scene.js, so pixels stay square. */
+.scene-wrap { border-radius: 12px; overflow: hidden; animation: fade .4s ease-out; }
+/* Fills the width at the canvas's own aspect ratio; no JS sizing, so nothing can feed back into layout. */
+.scene { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.scene-card { position: relative; }
+.hud { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; pointer-events: none; }
+.hud-pill { display: inline-flex; align-items: center; gap: 6px; max-width: 70%; padding: 4px 8px; border-radius: 7px; background: rgba(10, 8, 18, .72); color: #fff; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .4s; }
+.hud-pill.productive { color: var(--productive); }
+.hud-pill.wasted { color: var(--wasted); }
+.hud-pill.break { color: var(--break); }
+.hud-clock { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; text-transform: none; font-variant-numeric: tabular-nums; }
 .nudge { font-size: 12px; color: color-mix(in srgb, var(--text) 75%, transparent); }
 
 /* Track tab */
-.timer-face { text-align: center; padding: 14px 0 4px; }
+.timer-face { text-align: center; padding: 2px 0 0; }
 .timer-face .caption { justify-content: center; }
-.big-clock { font-size: 46px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; animation: rise .3s var(--ease); }
+.big-clock { font-size: 40px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; animation: rise .3s var(--ease); }
 .big-clock.dim { color: color-mix(in srgb, var(--text) 20%, transparent); }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; animation: pulse 1.6s ease-in-out infinite; }
 .live-dot.productive { background: var(--productive); }
 .live-dot.wasted { background: var(--wasted); }
+.live-dot.break { background: var(--break); }
+.track-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .track-btn {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px;
+  min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 11px 4px; font-size: 12px;
   border-radius: 10px; border: 1px solid var(--border); background: var(--surface); font-weight: 700;
   transition: background .2s, border-color .2s, box-shadow .3s, transform .12s var(--ease);
 }
 .track-btn.productive { color: var(--productive); --glow: var(--productive); }
 .track-btn.wasted { color: var(--wasted); --glow: var(--wasted); }
+.track-btn.break { color: var(--break); --glow: var(--break); }
 .track-btn:hover { background: var(--surface-2); }
 .track-btn.active { background: color-mix(in srgb, var(--glow) 15%, transparent); border-color: color-mix(in srgb, var(--glow) 40%, transparent); animation: glow 2.4s ease-in-out infinite; }
 .quote { text-align: left; padding: 12px 14px; border-left: 2px solid var(--mood); background: var(--surface); border-radius: 0 10px 10px 0; color: color-mix(in srgb, var(--text) 75%, transparent); font-size: 12px; line-height: 1.55; animation: rise .35s var(--ease); transition: color .2s; }
@@ -232,10 +236,10 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .half.down { align-items: flex-start; }
 .bar { width: 70%; max-width: 12px; transition: height .45s var(--ease); }
 /* Break stacks on productive above the baseline, with a 2px gap between the two fills. */
-.stack { width: 70%; max-width: 12px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
-.stack .bar { width: 100%; max-width: none; }
+.bar-stack { width: 70%; max-width: 12px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.bar-stack .bar { width: 100%; max-width: none; }
 .bar.break { background: var(--break-mark); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: grow .5s var(--ease); }
-.stack .bar.break + .bar.productive { border-radius: 0; }
+.bar-stack .bar.break + .bar.productive { border-radius: 0; }
 .bar.productive { background: var(--productive-mark); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: grow .5s var(--ease); }
 .bar.wasted { background: var(--wasted-mark); border-radius: 0 0 4px 4px; transform-origin: top; animation: grow .5s var(--ease); }
 .tick { height: 14px; font-size: 9px; color: var(--muted); line-height: 14px; }
