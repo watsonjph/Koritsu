@@ -1,0 +1,8 @@
+[application]
+name = "koritsu"
+default_platform = "desktop"
+
+[bundle]
+identifier = "dev.koritsu.koritsu"
+publisher = "watsonjph"
+targets = ["nsis", "msi"]
