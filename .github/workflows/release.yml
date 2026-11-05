@@ -82,7 +82,7 @@ jobs:
           cargo deb --no-build --output dist/
           cargo generate-rpm --output dist/
           version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')
-          dir=koritsu-$version-linux-x86_64
+          dir=koritsu-linux-x86_64
           mkdir -p "dist/$dir"
           cp target/release/koritsu assets/linux/koritsu.desktop "dist/$dir/"
           cp docs/logo.png "dist/$dir/koritsu.png"
@@ -104,14 +104,23 @@ jobs:
         with:
           path: out
           merge-multiple: true
+      # Fixed file names, so .../releases/latest/download/<name> always gets the newest version.
+      - name: Name the installers
+        run: |
+          mkdir rel
+          cp out/Koritsu-Setup-*.exe rel/Koritsu-Setup-x64.exe
+          cp out/*.dmg rel/Koritsu-macOS.dmg
+          cp out/*.deb rel/koritsu_amd64.deb
+          cp out/*.rpm rel/koritsu.x86_64.rpm
+          cp out/koritsu-linux-x86_64.tar.gz rel/
+          ls -la rel
       - name: Draft release with all installers
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -la out
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" out/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$GITHUB_REF_NAME" rel/* --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$GITHUB_REF_NAME" out/* --draft --repo "$GITHUB_REPOSITORY" \
+            gh release create "$GITHUB_REF_NAME" rel/* --draft --repo "$GITHUB_REPOSITORY" \
               --title "Koritsu 効率 $GITHUB_REF_NAME" --notes "Installers for Windows, macOS and Linux."
           fi
