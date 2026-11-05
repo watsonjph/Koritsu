@@ -1,0 +1,117 @@
+# Builds Koritsu for Windows, macOS and Linux and attaches the installers to a draft release.
+# Runs when a version tag is pushed (git tag v0.5.0 && git push origin v0.5.0), or by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$version" installer\koritsu.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/Koritsu-Setup-*.exe
+
+  macos:
+    runs-on: macos-14
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --target aarch64-apple-darwin
+      - run: cargo build --release --target x86_64-apple-darwin
+      - name: App bundle and disk image
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          app=dist/stage/Koritsu.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          # One universal binary: runs natively on Apple Silicon and Intel.
+          lipo -create -output "$app/Contents/MacOS/koritsu" \
+            target/aarch64-apple-darwin/release/koritsu target/x86_64-apple-darwin/release/koritsu
+          sed "s/__VERSION__/$version/g" assets/macos/Info.plist > "$app/Contents/Info.plist"
+          cp assets/macos/Koritsu.icns "$app/Contents/Resources/"
+          # Ad-hoc signature: required for Apple Silicon to run it (not notarized).
+          codesign --force --deep --sign - "$app"
+          ln -s /Applications dist/stage/Applications
+          hdiutil create -volname Koritsu -srcfolder dist/stage -ov -format UDZO "dist/Koritsu-$version-macOS-universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries (WebKitGTK, GTK, tray, global shortcuts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test
+      - run: cargo build --release
+      - name: Packages (.deb, .rpm, .tar.gz)
+        run: |
+          cargo install cargo-deb cargo-generate-rpm --locked
+          mkdir -p dist
+          cargo deb --no-build --output dist/
+          cargo generate-rpm --output dist/
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          dir=koritsu-$version-linux-x86_64
+          mkdir -p "dist/$dir"
+          cp target/release/koritsu assets/linux/koritsu.desktop "dist/$dir/"
+          cp docs/logo.png "dist/$dir/koritsu.png"
+          tar -C dist -czf "dist/$dir.tar.gz" "$dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+
+  release:
+    needs: [windows, macos, linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Draft release with all installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" out/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" out/* --draft --repo "$GITHUB_REPOSITORY" \
+              --title "Koritsu 効率 $GITHUB_REF_NAME" --notes "Installers for Windows, macOS and Linux."
+          fi

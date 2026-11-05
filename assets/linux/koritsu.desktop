@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Koritsu
+GenericName=Time Tracker
+Comment=Track wasted vs productive time, with a Pomodoro and todos
+Exec=koritsu
+Icon=koritsu
+Terminal=false
+Categories=Utility;Office;
+Keywords=time;tracker;pomodoro;focus;productivity;
+StartupWMClass=koritsu

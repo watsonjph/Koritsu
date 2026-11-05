@@ -6,7 +6,10 @@
 ; shortcut that registers the app ID Windows uses for notifications. Your data in
 ; %APPDATA%\koritsu is left alone on uninstall.
 
-#define AppVersion "0.4.0"
+; CI passes the version from Cargo.toml (/DAppVersion=x.y.z); this is the fallback.
+#ifndef AppVersion
+  #define AppVersion "0.5.0"
+#endif
 #define AppId "dev.koritsu.Koritsu"
 
 [Setup]
@@ -36,7 +39,7 @@ CloseApplications=force
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
-Name: "autostart"; Description: "Start Koritsu when Windows starts"; Flags: unchecked
+Name: "autostart"; Description: "Start Koritsu when you log in"; Flags: unchecked
 
 [Files]
 Source: "..\target\release\koritsu.exe"; DestDir: "{app}"; DestName: "Koritsu.exe"; Flags: ignoreversion

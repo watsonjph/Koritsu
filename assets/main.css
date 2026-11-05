@@ -4,7 +4,8 @@
 :root {
   --slate: #64748b;
   --ease: cubic-bezier(.2, .8, .2, 1);
-  --mono: "JetBrains Mono", "Yu Gothic UI", "Meiryo", "Segoe UI", sans-serif;
+  /* Japanese falls back to each OS's own font: Windows, macOS, then Linux */
+  --mono: "JetBrains Mono", "Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", "Noto Sans JP", "Segoe UI", system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }

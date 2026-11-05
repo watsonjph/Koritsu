@@ -127,7 +127,7 @@ fn main() {
     unsafe { std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required") };
 
     let initial = store::load();
-    // Launched by "Start with Windows": go straight to the tray.
+    // Launched at login (see autostart.rs): go straight to the tray.
     let hidden = std::env::args().any(|a| a == autostart::HIDDEN_ARG);
     let font = |b: &[u8], w: u32| {
         format!("@font-face{{font-family:'JetBrains Mono';font-weight:{w};src:url(data:font/woff2;base64,{})}}", STANDARD.encode(b))
