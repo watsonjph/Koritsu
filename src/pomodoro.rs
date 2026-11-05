@@ -1,8 +1,7 @@
 use crate::activity::{ASK, Ask};
 use crate::i18n::{Tr, tr};
-use crate::icons::{Icon, PAUSE, PLAY, RESET, SKIP};
-use crate::store::{POMO_DEFAULTS, Settings, Store, fmt_clock, now};
-use crate::{NOW, commit, sound};
+use crate::store::{POMO_DEFAULTS, Settings, Store, now};
+use crate::{commit, sound};
 use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -18,13 +17,6 @@ impl Phase {
             Phase::Focus => t.focus,
             Phase::Short => t.short_break,
             Phase::Long => t.long_break,
-        }
-    }
-    fn class(self) -> &'static str {
-        match self {
-            Phase::Focus => "focus",
-            Phase::Short => "short",
-            Phase::Long => "long",
         }
     }
     fn secs(self, s: &Settings) -> i64 {
@@ -130,90 +122,20 @@ pub fn toggle(store: Signal<Store>, mut pomo: Signal<Pomo>) {
     }
 }
 
-#[component]
-pub fn FocusTab() -> Element {
-    let store = use_context::<Signal<Store>>();
-    let mut pomo = use_context::<Signal<Pomo>>();
-    let mut show_settings = use_signal(|| false);
-    let t = tr();
-    let now = NOW();
-    let p = pomo();
-    let rounds = store.read().settings.rounds.max(1);
-    let focus_activity = store.read().focus_activity.clone();
-    let filled = if p.phase == Phase::Long { rounds } else { p.done % rounds };
-    let pct = 100.0 * (1.0 - p.remaining(now) as f64 / p.total.max(1) as f64);
-
-    rsx! {
-        div { class: "tab focus-tab",
-            div { class: "pomo-face {p.phase.class()}", class: if p.running() { "live" }, style: "--pct: {pct}%",
-                div { class: "caption", "{p.phase.label(t)}" }
-                if p.phase == Phase::Focus && !focus_activity.is_empty() {
-                    div { class: "activity-now", "{focus_activity}" }
-                }
-                div { class: "pomo-time", "{fmt_clock(p.remaining(now))}" }
-                div { class: "dots",
-                    for i in 0..rounds {
-                        span { class: if i < filled { "dot on" } else { "dot" } }
-                    }
-                }
-                div { class: "pomo-bar", div { class: "pomo-fill" } }
-            }
-            div { class: "row center gap",
-                button {
-                    class: "btn icon-btn",
-                    title: "{t.reset}",
-                    onclick: move |_| {
-                        sound::button(&store.peek().settings, "stop");
-                        pomo.set(Pomo::new(&store.peek().settings));
-                    },
-                    Icon { d: RESET }
-                }
-                button {
-                    class: "btn primary big",
-                    onclick: move |_| {
-                        // A fresh focus block asks what it's for; resuming or a break just goes.
-                        let p = *pomo.peek();
-                        if p.phase == Phase::Focus && p.untouched() {
-                            *ASK.write() = Some(Ask::Focus);
-                        } else {
-                            toggle(store, pomo);
-                        }
-                    },
-                    if p.running() {
-                        Icon { d: PAUSE }
-                        "{t.pause}"
-                    } else {
-                        Icon { d: PLAY }
-                        "{t.start}"
-                    }
-                }
-                button {
-                    class: "btn icon-btn",
-                    title: "{t.skip}",
-                    onclick: move |_| {
-                        sound::button(&store.peek().settings, "click");
-                        pomo.write().skip(&store.peek().settings);
-                    },
-                    Icon { d: SKIP }
-                }
-            }
-            div { class: if show_settings() { "section open" } else { "section" },
-                button {
-                    class: "section-head",
-                    onclick: move |_| show_settings.toggle(),
-                    "{t.timer}"
-                    span { class: "chev", "+" }
-                }
-                if show_settings() {
-                    TimerSettings {}
-                }
-            }
-        }
+/// Lengths of the focus block, the breaks, and the rounds before a long break.
+/// The Focus button: a fresh focus block first asks what it's for; pausing, resuming or a break
+/// just goes.
+pub fn press(store: Signal<Store>, pomo: Signal<Pomo>) {
+    let p = *pomo.peek();
+    if p.phase == Phase::Focus && p.untouched() {
+        *ASK.write() = Some(Ask::Focus);
+    } else {
+        toggle(store, pomo);
     }
 }
 
 #[component]
-fn TimerSettings() -> Element {
+pub fn TimerSettings() -> Element {
     let store = use_context::<Signal<Store>>();
     let mut pomo = use_context::<Signal<Pomo>>();
     let s = store.read().settings.clone();

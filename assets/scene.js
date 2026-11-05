@@ -920,7 +920,9 @@ window.koritsuScene = (() => {
   }
 
   // ---------- the commute: wait on a platform, ride to the next station, repeat ----------
-  const ROUTE = [["桜", "SAKURA"], ["稲荷", "INARI"], ["月見", "TSUKIMI"], ["蛍", "HOTARU"], ["湖畔", "KOHAN"], ["紅葉", "MOMIJI"]];
+  // 桜 稲荷 月見 蛍 湖畔 紅葉, escaped: the app's page isn't declared UTF-8, so raw kanji in a script
+  // get misread there.
+  const ROUTE = [["\u685c", "SAKURA"], ["\u7a32\u8377", "INARI"], ["\u6708\u898b", "TSUKIMI"], ["\u86cd", "HOTARU"], ["\u6e56\u7554", "KOHAN"], ["\u7d05\u8449", "MOMIJI"]];
   const SERVICES = [["LOCAL", "#3fae5a"], ["RAPID", "#f28b30"], ["EXPRESS", "#e0484d"], ["SEMI EXP", "#3f8fd8"]];
   const WAIT = 34000, RIDE = 30000, LEG = WAIT + RIDE; // ms on the platform, then on the train
   // Within WAIT: she steps off and walks to the bench, her train pulls out, the next pulls in and
@@ -1524,8 +1526,12 @@ window.koritsuScene = (() => {
   let last = performance.now();
   setInterval(() => {
     const now = performance.now();
-    if (!reduced.matches) clock += now - last; // reduced motion: the scene holds still
+    // Hidden in the tray, or (unless set to animate in the background) another window has
+    // focus: hold the frame and the clock, so nothing is missed and no CPU is spent.
+    const paused = document.hidden || (!state.background && !document.hasFocus());
+    if (!reduced.matches && !paused) clock += now - last; // reduced motion: the scene holds still
     last = now;
+    if (paused) return;
     tf = clock / TICK;
     t = Math.floor(tf);
     for (const [id, canvas] of canvases) {

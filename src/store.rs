@@ -229,11 +229,23 @@ pub struct Character {
     pub scene: ProductiveScene,
     pub weather: Weather,
     pub sky: SkyMode,
+    /// Keep animating while another window has focus; off pauses it, like a wallpaper engine.
+    pub animate_unfocused: bool,
 }
 
 impl Default for Character {
     fn default() -> Self {
-        Self { show: true, hair: None, skin: None, eyes: None, outfit: None, scene: ProductiveScene::Fishing, weather: Weather::Auto, sky: SkyMode::Auto }
+        Self {
+            show: true,
+            hair: None,
+            skin: None,
+            eyes: None,
+            outfit: None,
+            scene: ProductiveScene::Fishing,
+            weather: Weather::Auto,
+            sky: SkyMode::Auto,
+            animate_unfocused: false,
+        }
     }
 }
 

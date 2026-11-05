@@ -64,6 +64,7 @@ pub fn SettingsTab() -> Element {
 
             div { class: "caption", "{t.sec_pomodoro}" }
             div { class: "group",
+                crate::pomodoro::TimerSettings {}
                 ToggleRow { label: t.auto_work, on: s.auto_work, ontoggle: move |_| flip(|s| &mut s.auto_work) }
                 ToggleRow { label: t.auto_break, on: s.auto_break, ontoggle: move |_| flip(|s| &mut s.auto_break) }
                 ToggleRow { label: t.tick_work, on: s.tick_work, ontoggle: move |_| flip(|s| &mut s.tick_work) }
@@ -124,6 +125,7 @@ pub fn SettingsTab() -> Element {
                 ToggleRow { label: t.show_character, on: s.character.show, ontoggle: move |_| flip(|s| &mut s.character.show) }
                 if s.character.show {
                     crate::scene::Scene {}
+                    ToggleRow { label: t.animate_unfocused, on: s.character.animate_unfocused, ontoggle: move |_| flip(|s| &mut s.character.animate_unfocused) }
                     div { class: "set-row",
                         span { "{t.when_productive}" }
                         div { class: "seg small", style: "--i: {usize::from(s.character.scene == ProductiveScene::Reading)}; --n: 2",

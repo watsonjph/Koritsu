@@ -4,6 +4,9 @@ use dioxus::prelude::*;
 pub const PLAY: &str = "M7 4v16l13-8z";
 pub const PAUSE: &str = "M7 4h3v16H7zM14 4h3v16h-3z";
 pub const STOP: &str = "M6 6h12v12H6z";
+pub const MOON: &str = "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z";
+/// A stopwatch: the Pomodoro.
+pub const TIMER: &str = "M12 9v4l2.5 2M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM10 2h4";
 pub const X: &str = "M6 6l12 12M18 6L6 18";
 pub const MINUS: &str = "M5 12h14";
 pub const PLUS: &str = "M12 5v14M5 12h14";
@@ -12,8 +15,6 @@ pub const TRASH: &str = "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6";
 pub const PENCIL: &str = "M17 3l4 4L7 21H3v-4z";
 pub const SKIP: &str = "M5 4l10 8-10 8zM19 5v14";
 pub const RESET: &str = "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5";
-pub const MOON: &str = "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z";
-pub const SLIDERS: &str = "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6";
 
 #[component]
 pub fn Icon(d: &'static str) -> Element {

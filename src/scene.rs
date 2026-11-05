@@ -38,6 +38,8 @@ pub fn Scene() -> Element {
             "productive": if st.settings.character.scene == ProductiveScene::Reading { "reading" } else { "fishing" },
             "weather": st.settings.character.weather.key(),
             "sky": st.settings.character.sky.key(),
+            // pinned on top it stays in view, so it keeps moving
+            "background": st.settings.character.animate_unfocused || st.settings.pinned,
             "character": st.settings.character.to_js(),
         });
         document::eval(&format!("window.koritsuScene?.update({state})"));
