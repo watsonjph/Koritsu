@@ -136,12 +136,31 @@ pub(crate) fn buckets(p: Period, today: NaiveDate, t: &Tr) -> Vec<Bucket> {
     }
 }
 
+/// Day / Week / Month / Year switch, shared by Stats and Log.
+#[component]
+fn PeriodSeg(period: Signal<Period>) -> Element {
+    let t = tr();
+    let p = period();
+    let pi = Period::ALL.iter().position(|x| *x == p).unwrap_or(0);
+    rsx! {
+        div { class: "seg", style: "--i: {pi}; --n: 4",
+            span { class: "seg-pill" }
+            for (i, per) in Period::ALL.into_iter().enumerate() {
+                button {
+                    key: "{i}",
+                    class: if per == p { "seg-btn on" } else { "seg-btn" },
+                    onclick: move |_| period.set(per),
+                    "{t.periods[i]}"
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn StatsTab() -> Element {
     let store = use_context::<Signal<Store>>();
-    let mut period = use_signal(|| Period::Week);
-    let mut draft = use_signal(|| None::<Draft>);
-    let mut confirm = use_signal(|| None::<u64>);
+    let period = use_signal(|| Period::Week);
     let t = tr();
     let now = NOW();
     let today = today();
@@ -167,27 +186,9 @@ pub fn StatsTab() -> Element {
         _ => nudge,
     };
 
-    let mut entries: Vec<Entry> = st
-        .entries
-        .iter()
-        .filter(|e| e.end > range.0 && e.start < range.1)
-        .cloned()
-        .collect();
-    entries.sort_by_key(|e| std::cmp::Reverse(e.start));
-
     rsx! {
         div { class: "tab stats-tab",
-            div { class: "seg", style: "--i: {pi}; --n: 4",
-                span { class: "seg-pill" }
-                for (i, per) in Period::ALL.into_iter().enumerate() {
-                    button {
-                        key: "{i}",
-                        class: if per == p { "seg-btn on" } else { "seg-btn" },
-                        onclick: move |_| period.set(per),
-                        "{t.periods[i]}"
-                    }
-                }
-            }
+            PeriodSeg { period }
             // Overview: the three totals, then the one-line summary.
             div { class: "card overview",
                 div { class: "mini-stats",
@@ -214,6 +215,34 @@ pub fn StatsTab() -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Every logged entry in the period, newest first, to add, edit or delete.
+#[component]
+pub fn LogTab() -> Element {
+    let store = use_context::<Signal<Store>>();
+    let period = use_signal(|| Period::Week);
+    let mut draft = use_signal(|| None::<Draft>);
+    let mut confirm = use_signal(|| None::<u64>);
+    let t = tr();
+    let p = period();
+    let pi = Period::ALL.iter().position(|x| *x == p).unwrap_or(0);
+    let this = t.this[pi];
+    let range = p.range(today());
+    let mut entries: Vec<Entry> = store
+        .read()
+        .entries
+        .iter()
+        .filter(|e| e.end > range.0 && e.start < range.1)
+        .cloned()
+        .collect();
+    entries.sort_by_key(|e| std::cmp::Reverse(e.start));
+
+    rsx! {
+        div { class: "tab stats-tab",
+            PeriodSeg { period }
             div { class: "block",
                 div { class: "block-title",
                     span { "{t.entries} · {this}" }

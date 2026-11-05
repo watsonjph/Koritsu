@@ -22,7 +22,7 @@ use dioxus::desktop::trayicon::{Icon as TrayImage, TrayIconBuilder};
 use dioxus::desktop::{Config, HotKeyState, LogicalSize, WindowBuilder, WindowCloseBehaviour, window};
 use dioxus::prelude::*;
 use i18n::{LANG, tr};
-use icons::{Icon, MINUS, PIN, SLIDERS, X};
+use icons::{Icon, MINUS, PIN, X};
 use pomodoro::{Phase, Pomo};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -168,7 +168,8 @@ fn main() {
         .with_close_behaviour(WindowCloseBehaviour::WindowHides)
         // Our tray handler toggles; Dioxus' default would show and then we'd hide it again.
         .with_tray_icon_show_window_on_click(false)
-        .with_disable_context_menu(!cfg!(debug_assertions));
+        // No browser menu (Back, Refresh, Save image as, Inspect…) on right-click, in any build.
+        .with_disable_context_menu(true);
 
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).with_context(initial).launch(App);
     drop(lock);
@@ -177,19 +178,25 @@ fn main() {
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Track,
-    Focus,
     Todo,
     Stats,
+    Log,
     Settings,
 }
 
-const TABS: [Tab; 5] = [Tab::Track, Tab::Focus, Tab::Todo, Tab::Stats, Tab::Settings];
+const TABS: [Tab; 5] = [Tab::Track, Tab::Todo, Tab::Stats, Tab::Log, Tab::Settings];
+
+/// Name of the page at `TABS[i]`.
+fn page_label(t: &i18n::Tr, i: usize) -> &'static str {
+    t.tabs.get(i).copied().unwrap_or(t.settings)
+}
 
 #[component]
 fn App() -> Element {
     let store = use_context_provider(|| Signal::new(consume_context::<Store>()));
     let pomo = use_context_provider(|| Signal::new(Pomo::new(&store.peek().settings)));
     let mut tab = use_signal(|| Tab::Track);
+    let mut menu = use_signal(|| false);
 
     use_hook(|| {
         *LANG.write() = store.peek().settings.lang;
@@ -223,9 +230,10 @@ fn App() -> Element {
         if e.id == TRAY_SHOW {
             toggle_window();
         } else if e.id == TRAY_QUIT {
-            let w = window();
-            w.set_close_behavior(WindowCloseBehaviour::WindowCloses);
-            w.close();
+            // Closing the window doesn't end the app while the tray icon keeps it alive, so
+            // exit outright. Every change is already saved; this writes the latest once more.
+            let _ = store::save(&store.peek());
+            std::process::exit(0);
         }
     });
     dioxus::desktop::use_tray_icon_event_handler(|e| {
@@ -313,7 +321,9 @@ fn App() -> Element {
                 let _ = e.set_focus(true).await;
             },
             onkeydown: move |e| {
-                if e.key() == Key::Escape {
+                if e.key() == Key::Escape && menu() {
+                    menu.set(false);
+                } else if e.key() == Key::Escape {
                     window().set_visible(false);
                 } else if e.modifiers().ctrl()
                     && let Key::Character(c) = e.key()
@@ -321,24 +331,28 @@ fn App() -> Element {
                 {
                     e.prevent_default();
                     tab.set(TABS[i - 1]);
+                    menu.set(false);
                 }
             },
-            Titlebar {}
-            nav { class: "seg tabs", style: "--i: {idx}; --n: {TABS.len()}",
-                span { class: "seg-pill" }
-                for (i, label) in t.tabs.iter().enumerate() {
+            Titlebar { menu, page: page_label(t, idx) }
+            // The page drawer slides in from the left over a dimmed page. Always mounted, so it
+            // slides out as smoothly as it slides in.
+            div { class: if menu() { "drawer-scrim open" } else { "drawer-scrim" }, onclick: move |_| menu.set(false) }
+            nav { class: if menu() { "drawer open" } else { "drawer" },
+                for i in 0..TABS.len() {
                     button {
                         key: "{i}",
-                        class: if idx == i { "seg-btn on" } else { "seg-btn" },
-                        onclick: move |_| tab.set(TABS[i]),
-                        "{label}"
+                        // Settings sits at the bottom, apart from the pages.
+                        class: format!("drawer-item{}{}", if idx == i { " on" } else { "" }, if TABS[i] == Tab::Settings { " end" } else { "" }),
+                        style: "--d: {i}",
+                        tabindex: if menu() { "0" } else { "-1" },
+                        onclick: move |_| {
+                            tab.set(TABS[i]);
+                            menu.set(false);
+                        },
+                        span { "{page_label(t, i)}" }
+                        span { class: "drawer-key", "Ctrl {i + 1}" }
                     }
-                }
-                button {
-                    class: if tab() == Tab::Settings { "seg-btn on" } else { "seg-btn" },
-                    title: "{t.settings}",
-                    onclick: move |_| tab.set(Tab::Settings),
-                    Icon { d: SLIDERS }
                 }
             }
             if let Some(err) = SAVE_ERR() {
@@ -347,9 +361,9 @@ fn App() -> Element {
             main { class: "content",
                 match tab() {
                     Tab::Track => rsx! { track::TrackTab {} },
-                    Tab::Focus => rsx! { pomodoro::FocusTab {} },
                     Tab::Todo => rsx! { todos::TodoTab {} },
                     Tab::Stats => rsx! { stats::StatsTab {} },
+                    Tab::Log => rsx! { stats::LogTab {} },
                     Tab::Settings => rsx! { settings::SettingsTab {} },
                 }
             }
@@ -436,13 +450,22 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
 }
 
 #[component]
-fn Titlebar() -> Element {
+fn Titlebar(menu: Signal<bool>, page: &'static str) -> Element {
     let store = use_context::<Signal<Store>>();
     let pinned = store.read().settings.pinned;
     let mood = store.read().running.as_ref().map_or("idle", |r| r.kind.class());
     let t = tr();
     rsx! {
         div { class: "titlebar",
+            button {
+                class: if menu() { "tb-btn menu-btn open" } else { "tb-btn menu-btn" },
+                title: "{t.menu}",
+                onclick: move |_| menu.toggle(),
+                span { class: "bars",
+                    span { class: "menu-bar" }
+                    span { class: "menu-bar" }
+                }
+            }
             div { class: "drag", onmousedown: move |_| window().drag(),
                 // Re-keyed on every mood change so the shine sweep replays; the colour itself
                 // is inherited from `.app` and transitions smoothly.
@@ -452,6 +475,7 @@ fn Titlebar() -> Element {
                         span { class: "kanji", "効率" }
                     }
                 }
+                span { class: "page", "{page}" }
             }
             button {
                 class: if pinned { "tb-btn on" } else { "tb-btn" },

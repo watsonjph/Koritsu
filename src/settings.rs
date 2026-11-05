@@ -1,7 +1,7 @@
-use crate::i18n::{EN, JA, LANG, fill, tr};
+use crate::i18n::{EN, JA, LANG, fill, kind_label, tr};
 use crate::icons::{Icon, PLUS, TRASH};
 use crate::place::{self, Corner};
-use crate::store::{self, Alert, Character, Lang, ProductiveScene, Settings, SkyMode, SoundProfile, Store, Theme, Token, Weather, WindowSize, parse_hex};
+use crate::store::{self, Alert, Character, Kind, Lang, ProductivePlace, Settings, SkyMode, SoundProfile, Store, Theme, Token, WastedPlace, Weather, WindowSize, parse_hex};
 use crate::{GLOBAL_KEYS, HotkeysOk, autostart, commit, set_pinned, sound};
 use dioxus::desktop::window;
 use dioxus::prelude::*;
@@ -12,6 +12,8 @@ pub fn SettingsTab() -> Element {
     let store = use_context::<Signal<Store>>();
     let hotkeys = use_context::<HotkeysOk>();
     let mut quote = use_signal(String::new);
+    // which mood the preview shows; picking a mode's scenery switches to that mode
+    let mut preview = use_signal(|| Kind::Productive);
     let mut exported = use_signal(|| None::<Result<PathBuf, String>>);
     // The volume while the slider is being dragged; saved once, on release.
     let mut dragging = use_signal(|| None::<u32>);
@@ -64,6 +66,7 @@ pub fn SettingsTab() -> Element {
 
             div { class: "caption", "{t.sec_pomodoro}" }
             div { class: "group",
+                crate::pomodoro::TimerSettings {}
                 ToggleRow { label: t.auto_work, on: s.auto_work, ontoggle: move |_| flip(|s| &mut s.auto_work) }
                 ToggleRow { label: t.auto_break, on: s.auto_break, ontoggle: move |_| flip(|s| &mut s.auto_break) }
                 ToggleRow { label: t.tick_work, on: s.tick_work, ontoggle: move |_| flip(|s| &mut s.tick_work) }
@@ -123,17 +126,65 @@ pub fn SettingsTab() -> Element {
             div { class: "group",
                 ToggleRow { label: t.show_character, on: s.character.show, ontoggle: move |_| flip(|s| &mut s.character.show) }
                 if s.character.show {
-                    crate::scene::Scene {}
-                    div { class: "set-row",
+                    crate::scene::Scene { preview: Some(preview().class()) }
+                    div { class: "seg small preview-seg", style: "--i: {Kind::ALL.iter().position(|k| *k == preview()).unwrap_or(0)}; --n: 3",
+                        span { class: "seg-pill {preview().class()}" }
+                        for kind in Kind::ALL {
+                            button {
+                                key: "{kind.class()}",
+                                class: if preview() == kind { "seg-btn on {kind.class()}" } else { "seg-btn" },
+                                title: "{t.preview}",
+                                onclick: move |_| preview.set(kind),
+                                "{kind_label(kind)}"
+                            }
+                        }
+                    }
+                    ToggleRow { label: t.animate_unfocused, on: s.character.animate_unfocused, ontoggle: move |_| flip(|s| &mut s.character.animate_unfocused) }
+                    // Where she goes in each mode: the default moves between places.
+                    div { class: "set-row stack",
                         span { "{t.when_productive}" }
-                        div { class: "seg small", style: "--i: {usize::from(s.character.scene == ProductiveScene::Reading)}; --n: 2",
+                        div { class: "seg small", style: "--i: {ProductivePlace::ALL.iter().position(|p| *p == s.character.productive_place).unwrap_or(0)}; --n: 6",
                             span { class: "seg-pill" }
-                            for (scene, name) in [(ProductiveScene::Fishing, t.fishing), (ProductiveScene::Reading, t.reading)] {
+                            for (i, place) in ProductivePlace::ALL.into_iter().enumerate() {
                                 button {
-                                    key: "{name}",
-                                    class: if s.character.scene == scene { "seg-btn on" } else { "seg-btn" },
-                                    onclick: move |_| commit(store, |st| st.settings.character.scene = scene),
-                                    "{name}"
+                                    key: "{place.key()}",
+                                    class: if s.character.productive_place == place { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| {
+                                        preview.set(Kind::Productive);
+                                        commit(store, |st| st.settings.character.productive_place = place);
+                                    },
+                                    "{t.places[i]}"
+                                }
+                            }
+                        }
+                    }
+                    div { class: "set-row",
+                        span { "{t.when_wasted}" }
+                        div { class: "seg small", style: "--i: {WastedPlace::ALL.iter().position(|p| *p == s.character.wasted_place).unwrap_or(0)}; --n: 3",
+                            span { class: "seg-pill" }
+                            for (i, place) in WastedPlace::ALL.into_iter().enumerate() {
+                                button {
+                                    key: "{place.key()}",
+                                    class: if s.character.wasted_place == place { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| {
+                                        preview.set(Kind::Wasted);
+                                        commit(store, |st| st.settings.character.wasted_place = place);
+                                    },
+                                    "{t.commutes[i]}"
+                                }
+                            }
+                        }
+                    }
+                    div { class: "set-row",
+                        span { "{t.bubbles}" }
+                        div { class: "seg small", style: "--i: {[0, 3, 5, 8].iter().position(|v| *v == s.character.bubble_secs).unwrap_or(2)}; --n: 4",
+                            span { class: "seg-pill" }
+                            for secs in [0u32, 3, 5, 8] {
+                                button {
+                                    key: "{secs}",
+                                    class: if s.character.bubble_secs == secs { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| commit(store, |st| st.settings.character.bubble_secs = secs),
+                                    if secs == 0 { "{t.off}" } else { "{secs}s" }
                                 }
                             }
                         }
