@@ -18,7 +18,7 @@ pub fn SettingsTab() -> Element {
     let t = tr();
     let s = store.read().settings.clone();
     let volume = dragging().unwrap_or(s.volume);
-    // Read from the registry, which is what Windows will actually do at login.
+    // Read from the OS's own login items, which is what will actually happen at login.
     let mut autostart_on = use_signal(autostart::enabled);
     let mut autostart_err = use_signal(|| None::<String>);
 
@@ -290,7 +290,7 @@ pub fn SettingsTab() -> Element {
                             button {
                                 class: "link",
                                 onclick: move |_| {
-                                    let _ = std::process::Command::new("explorer").arg(format!("/select,{}", path.display())).spawn();
+                                    reveal(&path);
                                 },
                                 "{t.show_in_folder}"
                             }
@@ -373,6 +373,20 @@ fn character_colors(t: &crate::i18n::Tr) -> [(&'static str, CharField, &'static 
         (t.eye_color, |c| &mut c.eyes, store::SPRITE_EYES),
         (t.outfit, |c| &mut c.outfit, store::SPRITE_OUTFIT),
     ]
+}
+
+/// Opens the system file manager at `path` (selected, where the OS supports that).
+fn reveal(path: &std::path::Path) {
+    use std::process::Command;
+    #[cfg(windows)]
+    let cmd = Command::new("explorer").arg(format!("/select,{}", path.display())).spawn();
+    #[cfg(target_os = "macos")]
+    let cmd = Command::new("open").arg("-R").arg(path).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let cmd = Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn();
+    if let Err(e) = cmd {
+        eprintln!("koritsu: couldn't open the file manager: {e}");
+    }
 }
 
 /// Pick a phase-end alert; choosing one plays it.

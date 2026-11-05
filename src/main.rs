@@ -37,6 +37,12 @@ const CSS: &str = include_str!("../assets/main.css");
 const SOUND_JS: &str = include_str!("../assets/sound.js");
 const SCENE_JS: &str = include_str!("../assets/scene.js");
 const SHEET_PNG: &[u8] = include_bytes!("../assets/character.png");
+/// Extra animations: (name, sprite sheet, atlas). Names match `ANIM_NAMES` in scene.js.
+const ANIMS: [(&str, &[u8], &str); 3] = [
+    ("eating", include_bytes!("../assets/senko/eating.png"), include_str!("../assets/senko/eating.json")),
+    ("to-bed", include_bytes!("../assets/senko/to-bed.png"), include_str!("../assets/senko/to-bed.json")),
+    ("hopping", include_bytes!("../assets/senko/hopping.png"), include_str!("../assets/senko/hopping.json")),
+];
 const TRAY_SHOW: &str = "koritsu-show";
 const TRAY_QUIT: &str = "koritsu-quit";
 
@@ -71,10 +77,29 @@ pub fn notify(store: Signal<Store>, body: String) {
     }
     // Showing a toast can block for a moment on Windows; keep it off the UI thread.
     std::thread::spawn(move || {
-        if let Err(e) = notify_rust::Notification::new().summary("Koritsu 効率").body(&body).show() {
+        let mut toast = notify_rust::Notification::new();
+        toast.summary("Koritsu 効率").body(&body);
+        #[cfg(windows)]
+        if installed() {
+            // The installer's Start Menu shortcut registers this ID, so toasts show as Koritsu.
+            // Without that shortcut Windows drops toasts for an unknown ID, so portable copies
+            // keep the default.
+            toast.app_id(APP_ID);
+        }
+        if let Err(e) = toast.show() {
             eprintln!("koritsu: notification failed: {e}");
         }
     });
+}
+
+/// Windows AppUserModelID; must match `AppUserModelID` in installer/koritsu.iss.
+#[cfg(windows)]
+const APP_ID: &str = "dev.koritsu.Koritsu";
+
+/// Installed by the setup wizard (its uninstaller sits next to the exe), not run portably.
+#[cfg(windows)]
+fn installed() -> bool {
+    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("unins000.exe").exists())).unwrap_or(false)
 }
 
 pub fn set_pinned(store: Signal<Store>, on: bool) {
@@ -102,13 +127,19 @@ fn main() {
     unsafe { std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required") };
 
     let initial = store::load();
-    // Launched by "Start with Windows": go straight to the tray.
+    // Launched at login (see autostart.rs): go straight to the tray.
     let hidden = std::env::args().any(|a| a == autostart::HIDDEN_ARG);
     let font = |b: &[u8], w: u32| {
         format!("@font-face{{font-family:'JetBrains Mono';font-weight:{w};src:url(data:font/woff2;base64,{})}}", STANDARD.encode(b))
     };
+    // { name: { src: data URL, atlas: {...} } } for scene.js's extra animations
+    let anims = ANIMS
+        .iter()
+        .map(|(name, png, atlas)| format!("\"{name}\":{{\"src\":\"data:image/png;base64,{}\",\"atlas\":{atlas}}}", STANDARD.encode(png)))
+        .collect::<Vec<_>>()
+        .join(",");
     let head = format!(
-        "<style>{}{}{CSS}</style><script>{SOUND_JS}</script><script>window.KORITSU_SHEET=\"data:image/png;base64,{}\";</script><script>{SCENE_JS}</script>",
+        "<style>{}{}{CSS}</style><script>{SOUND_JS}</script><script>window.KORITSU_SHEET=\"data:image/png;base64,{}\";window.KORITSU_ANIMS={{{anims}}};</script><script>{SCENE_JS}</script>",
         font(include_bytes!("../assets/fonts/jetbrains-mono-latin-400-normal.woff2"), 400),
         font(include_bytes!("../assets/fonts/jetbrains-mono-latin-700-normal.woff2"), 700),
         STANDARD.encode(SHEET_PNG),

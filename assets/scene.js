@@ -5,7 +5,9 @@
 // Moods: idle (strolling on the dock), productive (fishing or reading), wasted (in bed,
 // doomscrolling), break (asleep). The outdoor sky follows the local time of day.
 window.koritsuScene = (() => {
-  const W = 160, H = 80, S = 2, FPS = 8; // background resolution and its upscale
+  const W = 160, H = 80, S = 2; // background resolution and its upscale
+  const FPS = 30; // redraw rate: movement glides; sprite frames still step at their atlas timings
+  const TICK = 125; // ms per "tick" (8 per second), the unit the scene's timings are written in
   const FW = 64, FRAMES = 8;
 
   // ---------- colour helpers ----------
@@ -36,7 +38,7 @@ window.koritsuScene = (() => {
   // Colour groups in the sheet. Each pixel keeps its offset from the group's base colour, so a
   // new colour inherits the original shading.
   const GROUPS = {
-    hair: { base: "#fdd777", colors: ["#fdd777", "#c58146", "#974e1a"] }, // hair, ears and tail fur
+    hair: { base: "#fdd777", colors: ["#fdd777", "#d79e52", "#c58146", "#af6d3f", "#ad6c39", "#974e1a"] }, // hair, ears and tail fur
     skin: { base: "#fce1c8", colors: ["#fce1c8", "#edb9af", "#cb8e76"] },
     eyes: { base: "#e1262b", colors: ["#e1262b", "#8a111c"], above: 30 }, // red above the neckline
     outfit: { base: "#e1262b", colors: ["#e1262b", "#8a111c"], below: 30 }, // the red hakama and ties
@@ -62,9 +64,55 @@ window.koritsuScene = (() => {
   };
   sheet.src = window.KORITSU_SHEET || "/assets/character.png";
 
-  // Recoloured frames (plus a closed-eyes copy of frame 0 and a sitting pose), rebuilt when
-  // the colours change.
-  const cache = { key: null, frames: [], shut: null, sit: null, legs: [], hand: [12, 40] };
+  // Extra animations (assets/senko/*.png + their JSON atlases): eating and hopping on the dock,
+  // jumping into bed. Each frame is 64×64 like the walk sheet; durations come from the atlas.
+  const ANIM_NAMES = ["eating", "to-bed", "hopping"];
+  const anims = {}; // name → { raw: ImageData[], ms: number[], total, ground }
+  function loadAnim(name, src, atlas) {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext("2d");
+      g.drawImage(img, 0, 0);
+      const frames = Object.values(atlas.frames);
+      const raw = frames.map(({ frame: f }) => g.getImageData(f.x, f.y, f.w, f.h));
+      const ms = frames.map((f) => f.duration || TICK);
+      // the lowest opaque row across all frames: where her feet rest
+      let ground = 0;
+      for (const r of raw) for (let y = r.height - 1; y > ground; y--) {
+        let any = false;
+        for (let x = 0; x < r.width && !any; x++) any = r.data[(y * r.width + x) * 4 + 3] > 0;
+        if (any) ground = y;
+      }
+      anims[name] = { raw, ms, total: ms.reduce((a, b) => a + b, 0), ground };
+      cache.key = null;
+      redrawAll();
+    };
+    img.src = src;
+  }
+  for (const name of ANIM_NAMES) {
+    const bundled = window.KORITSU_ANIMS?.[name];
+    if (bundled) loadAnim(name, bundled.src, bundled.atlas);
+    else fetch(`/assets/senko/${name}.json`).then((r) => r.json()).then((a) => loadAnim(name, `/assets/senko/${name}.png`, a)).catch(() => {});
+  }
+
+  // Index of the frame showing `ms` into an animation; past the end it loops, or holds the last
+  // frame when `hold` is set.
+  function frameAt(a, ms, hold = false) {
+    if (hold && ms >= a.total) return a.ms.length - 1;
+    let m = ms % a.total;
+    for (let i = 0; i < a.ms.length; i++) {
+      if (m < a.ms[i]) return i;
+      m -= a.ms[i];
+    }
+    return 0;
+  }
+
+  // Recoloured frames (plus a closed-eyes copy of frame 0, a sitting pose and the extra
+  // animations), rebuilt when the colours change.
+  const cache = { key: null, frames: [], shut: null, sit: null, legs: [], hand: [12, 40], anims: {} };
 
   // Sitting pose, in frame-0 coordinates (the sprite faces left; "front" is low x).
   // The near arm reaches forward to grip the rod; the far arm comes across her chest and
@@ -195,6 +243,7 @@ window.koritsuScene = (() => {
     cache.sit = sit.cv;
     cache.sitShut = sitShut.cv;
     cache.legs = sit.legs;
+    cache.anims = Object.fromEntries(Object.entries(anims).map(([n, a]) => [n, a.raw.map((r) => build(r, false))]));
     // The hand nearest the front (lowest skin pixels on the left half of frame 0) holds things.
     let best = null;
     const d0 = raw[0].data;
@@ -259,166 +308,441 @@ window.koritsuScene = (() => {
     return x - Math.floor(x) < 0.2 ? 1 : 0;
   }
 
-  function gradient(ctx, top, bottom, y0, y1, x0 = 0, x1 = W) {
-    for (let y = y0; y < y1; y++) {
-      ctx.fillStyle = mix(top, bottom, (y - y0) / Math.max(1, y1 - y0 - 1));
-      ctx.fillRect(x0, y, x1 - x0, 1);
+  // ---------- drawing helpers (full resolution, 320×160, same pixel size as the sprite) ----------
+  const SW = W * S, SH = H * S;
+  function rect(ctx, x, y, w, h, c) {
+    ctx.fillStyle = c;
+    ctx.fillRect(x, y, w, h);
+  }
+  function px(ctx, x, y, c) {
+    ctx.fillStyle = c;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  // A pixel-perfect filled circle (or ellipse with `ry`).
+  function disc(ctx, cx, cy, r, c, ry = r) {
+    ctx.fillStyle = c;
+    for (let dy = -ry; dy <= ry; dy++) {
+      const dx = Math.round(r * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))));
+      ctx.fillRect(Math.round(cx - dx), Math.round(cy + dy), dx * 2 + 1, 1);
+    }
+  }
+  const hash = (n) => {
+    const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  // Smooth 1-D value noise in 0..1.
+  const noise = (x) => {
+    const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+    return hash(i) * (1 - u) + hash(i + 1) * u;
+  };
+  // Banded vertical gradient with a checkerboard row between bands: the pixel-art way.
+  function bands(ctx, top, bottom, y0, y1, n, x0 = 0, x1 = SW) {
+    const h = (y1 - y0) / n;
+    for (let i = 0; i < n; i++) {
+      const ya = Math.round(y0 + i * h), yb = Math.round(y0 + (i + 1) * h);
+      rect(ctx, x0, ya, x1 - x0, yb - ya, mix(top, bottom, n === 1 ? 0 : i / (n - 1)));
+      if (i < n - 1) {
+        ctx.fillStyle = mix(top, bottom, (i + 1) / (n - 1));
+        for (let x = x0 + (yb % 2); x < x1; x += 2) ctx.fillRect(x, yb - 1, 1, 1);
+      }
     }
   }
 
-  const STARS = [[9, 5], [27, 13], [44, 4], [66, 10], [83, 3], [101, 15], [119, 7], [138, 12], [151, 4], [35, 22], [127, 20], [74, 24], [12, 30]];
+  // ---------- sky: stars, sun, moon, clouds ----------
+  const STARS = Array.from({ length: 46 }, (_, i) => [Math.floor(hash(i) * SW), Math.floor(hash(i + 99) * 70), hash(i + 7) > 0.8]);
   function stars(ctx, t, x0, x1, y0, y1, alpha = 1) {
+    if (alpha <= 0.02) return;
     ctx.globalAlpha = alpha;
-    for (const [x, y] of STARS) {
+    for (const [i, [x, y, big]] of STARS.entries()) {
       if (x < x0 || x >= x1 || y < y0 || y >= y1) continue;
-      ctx.fillStyle = (x * 7 + t) % 23 < 2 ? "#6b6f9c" : "#e8e6ff";
-      ctx.fillRect(x, y, 1, 1);
+      const twinkle = (i * 7 + t) % 29 < 2;
+      px(ctx, x, y, twinkle ? "#7a7fb0" : "#f2f0ff");
+      if (big && !twinkle) {
+        ctx.globalAlpha = alpha * 0.45;
+        rect(ctx, x - 1, y, 3, 1, "#d8d8ff");
+        rect(ctx, x, y - 1, 1, 3, "#d8d8ff");
+        ctx.globalAlpha = alpha;
+      }
     }
     ctx.globalAlpha = 1;
   }
 
-  // Sun by day and moon by night, each on an arc across the sky. Hidden by rain clouds.
-  function celestial(ctx, s, x0 = 0, x1 = W, y0 = 0, y1 = 44) {
-    if (s.rain) return;
-    const arc = (u) => [x0 + 4 + u * (x1 - x0 - 12), y1 - 4 - Math.sin(u * Math.PI) * (y1 - y0 - 10)];
-    const h = s.hour;
-    if (h >= 5.5 && h <= 19) {
-      const [x, y] = arc((h - 5.5) / 13.5);
-      ctx.globalAlpha = 0.25;
-      ctx.fillStyle = "#fff3b0";
-      ctx.fillRect(Math.round(x) - 2, Math.round(y) - 2, 9, 9);
-      ctx.globalAlpha = 1;
-      paint(ctx, [".ooo.", "ooooo", "ooOoo", "ooooo", ".ooo."], Math.round(x), Math.round(y), { o: "#ffe27a", O: "#fff6c8" });
+  function sun(ctx, x, y) {
+    for (const [r, a] of [[14, 0.08], [10, 0.14]]) {
+      ctx.globalAlpha = a;
+      disc(ctx, x, y, r, "#fff1b8");
     }
-    if (h >= 18.5 || h <= 6.5) {
-      const [x, y] = arc(((h - 18.5 + 24) % 24) / 12);
-      paint(ctx, [".ooo.", "owwwo", "owgwo", "owwwo", ".ooo."], Math.round(x), Math.round(y), MOON);
-    }
+    ctx.globalAlpha = 1;
+    disc(ctx, x, y, 6, "#ffd257");
+    disc(ctx, x, y, 5, "#ffe27a");
+    disc(ctx, x - 1, y - 1, 3, "#fff3b8");
   }
 
-  const MOON = { o: "#d9d4b8", w: "#fff8d6", g: "#ece4c0" };
-  function outdoors(ctx, t, s) {
-    gradient(ctx, s.top, s.bottom, 0, 52);
-    // clouds: white by day, fading at night; low grey ones when it rains
-    const drift = Math.floor(t / 12);
-    const puffs = s.rain
-      ? [[0, 6, 40], [30, 2, 46], [70, 8, 38], [104, 3, 44], [140, 7, 34], [-20, 12, 30], [50, 14, 36], [120, 15, 40]]
-      : [[14, 9, 20], [78, 4, 14], [118, 14, 24]];
-    const light = s.rain ? mix("#9aa3b2", "#2a3040", s.dark) : mix("#ffffff", "#3a4070", s.dark);
-    const shade = s.rain ? mix("#7a8392", "#1c2030", s.dark) : mix("#dbeefc", "#2a3060", s.dark);
-    for (const [cx, cy, cw] of puffs) {
-      const x = ((cx + drift) % (W + 40) + W + 40) % (W + 40) - 28;
-      ctx.globalAlpha = s.rain ? 0.95 : 0.9 * (1 - 0.6 * s.dark);
-      ctx.fillStyle = light;
-      ctx.fillRect(x, cy, cw, 3);
-      ctx.fillRect(x + 3, cy - 2, cw - 8, 2);
-      ctx.fillStyle = shade;
-      ctx.fillRect(x + 1, cy + 3, cw - 2, 1);
-      ctx.globalAlpha = 1;
+  function moon(ctx, x, y) {
+    ctx.globalAlpha = 0.12;
+    disc(ctx, x, y, 11, "#e8e4ff");
+    ctx.globalAlpha = 1;
+    disc(ctx, x, y, 6, "#d9d4b8");
+    disc(ctx, x, y, 5, "#fff8dc");
+    for (const [dx, dy, c] of [[-2, -1, "#e6dfba"], [1, 2, "#e6dfba"], [2, -2, "#ece6c6"], [-1, 2, "#ece6c6"]]) px(ctx, x + dx, y + dy, c);
+  }
+
+  // Sun by day, moon by night, each on an arc over the given box. Hidden by rain clouds.
+  function celestial(ctx, s, x0, x1, y0, y1) {
+    if (s.rain) return;
+    const arc = (u) => [Math.round(x0 + 10 + u * (x1 - x0 - 20)), Math.round(y1 - 6 - Math.sin(u * Math.PI) * (y1 - y0 - 16))];
+    const h = s.hour;
+    if (h >= 5.5 && h <= 19) sun(ctx, ...arc((h - 5.5) / 13.5));
+    if (h >= 18.5 || h <= 6.5) moon(ctx, ...arc(((h - 18.5 + 24) % 24) / 12));
+  }
+
+  // A fluffy cloud: overlapping puffs, a lit top and a shaded underside.
+  function cloud(ctx, x, y, w, light, shade) {
+    const puffs = [[0.18, 0.55, 0.22], [0.42, 0.3, 0.3], [0.68, 0.45, 0.24], [0.86, 0.65, 0.16]];
+    for (const [u, v, r] of puffs) disc(ctx, x + u * w, y + v * w * 0.32, Math.max(3, r * w * 0.45), shade);
+    for (const [u, v, r] of puffs) disc(ctx, x + u * w, y + v * w * 0.32 - 1, Math.max(2, r * w * 0.45 - 1), light);
+    rect(ctx, Math.round(x + w * 0.1), Math.round(y + w * 0.3), Math.round(w * 0.8), 2, shade);
+  }
+
+  function clouds(ctx, tf, s) {
+    const drift = tf / 6;
+    const list = s.rain
+      ? [[0, 6, 90], [70, 0, 110], [160, 8, 100], [240, 2, 110], [-40, 18, 80], [120, 22, 90], [210, 26, 80]]
+      : [[20, 16, 46], [130, 6, 34], [210, 26, 56], [300, 12, 40]];
+    const light = s.rain ? mix("#a3acbb", "#2a3040", s.dark) : mix("#ffffff", "#454c7a", s.dark);
+    const shade = s.rain ? mix("#7d8696", "#1c2030", s.dark) : mix("#d4e4f4", "#2c3262", s.dark);
+    ctx.globalAlpha = s.rain ? 1 : 1 - 0.55 * s.dark;
+    for (const [cx, cy, w] of list) {
+      const x = ((cx + drift) % (SW + 140) + SW + 140) % (SW + 140) - 120;
+      cloud(ctx, Math.round(x), cy, w, light, shade);
     }
-    // far hills, two layers
-    for (const [base, amp, col, f] of [[46, 5, "#7bbf7a", 13], [49, 3, "#4f9a5a", 7]]) {
-      ctx.fillStyle = col;
-      for (let x = 0; x < W; x++) {
-        const h = amp + Math.round(amp * 0.6 * Math.sin(x / f) + Math.sin(x / 3.7));
-        ctx.fillRect(x, base - h, 1, h + 6);
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------- the lake ----------
+  const HORIZON = 104; // where the water starts
+  const BANK = 88; // right edge of the grassy bank
+  const POSTS = [96, 140, 186]; // dock posts (left x, 6 wide)
+
+  // Static parts of the lake, drawn once per sky colour: [sky, land].
+  function lakeLayers(s) {
+    const sky = layer(), land = layer();
+    const g = sky.getContext("2d");
+    bands(g, s.top, s.bottom, 0, HORIZON, 12);
+
+    const l = land.getContext("2d");
+    // far mountains, hazy with distance
+    const far = mix("#6c7fb0", s.bottom, 0.45), farLit = mix(far, "#ffffff", 0.18);
+    for (let x = 0; x < SW; x++) {
+      const y = Math.round(66 - 16 * noise(x / 46) - 7 * noise(x / 15 + 4));
+      rect(l, x, y, 1, HORIZON - y, far);
+      px(l, x, y, farLit);
+      if (y < 56) rect(l, x, y, 1, Math.min(3, 56 - y), mix("#eef2ff", far, 0.25)); // snow on the peaks
+    }
+    // rolling green hills with a tree line
+    for (let x = 0; x < SW; x++) {
+      const y = Math.round(88 - 7 * noise(x / 30 + 9) - 3 * noise(x / 9));
+      rect(l, x, y, 1, HORIZON - y, "#5a9e5c");
+      rect(l, x, y + 6, 1, HORIZON - y - 6, "#4c8b52");
+      rect(l, x, HORIZON - 3, 1, 3, "#3f7a49");
+      px(l, x, y, "#74b86e");
+    }
+    for (let x = 4; x < SW; x += 6 + Math.floor(hash(x) * 5)) {
+      const base = Math.round(88 - 7 * noise(x / 30 + 9) - 3 * noise(x / 9)) + 2;
+      if (hash(x + 3) > 0.55) {
+        // pine
+        for (let r = 0; r < 8; r++) rect(l, x - Math.floor(r / 2), base - 8 + r, Math.floor(r / 2) * 2 + 1, 1, r % 3 === 0 ? "#3c7a46" : "#2f6a3c");
+        px(l, x, base + 1, "#4a3424");
+      } else {
+        disc(l, x, base - 3, 3, "#2f6a3c");
+        disc(l, x - 1, base - 4, 2, "#3f8048");
       }
     }
-    // water with drifting highlights
-    gradient(ctx, s.rain ? "#5a8ab0" : "#4aa3df", s.rain ? "#356289" : "#2a74bd", 52, H);
-    ctx.fillStyle = s.rain ? "#9cc0dc" : "#bfe6ff";
-    for (let i = 0; i < 14; i++) {
-      const x = ((i * 29 + Math.floor(t / 2) * (i % 2 ? 1 : -1)) % (W + 12) + W + 12) % (W + 12) - 6;
-      ctx.fillRect(x, 55 + ((i * 7) % 24), 4 + (i % 4), 1);
+    // water: hill reflections near the shore, deepening toward us
+    const top = s.rain ? "#6f97b8" : mix("#5fb4e6", s.bottom, 0.3), deep = s.rain ? "#2f5c80" : "#1d5e9c";
+    bands(l, top, deep, HORIZON, SH, 9);
+    for (let x = 0; x < SW; x += 1) {
+      const h = 2 + Math.round(5 * noise(x / 30 + 9));
+      l.globalAlpha = 0.35;
+      rect(l, x, HORIZON, 1, h, "#3f7a49");
+      l.globalAlpha = 1;
     }
-    // grassy bank on the left
-    ctx.fillStyle = "#8a5a3c";
-    ctx.fillRect(0, 50, 42, H - 50);
-    ctx.fillStyle = "#6e4630";
-    for (let y = 54; y < H; y += 5) for (let x = (y % 10) / 2; x < 42; x += 7) ctx.fillRect(x, y, 4, 2);
-    ctx.fillStyle = "#5cc45a";
-    ctx.fillRect(0, 47, 43, 4);
-    ctx.fillStyle = "#8be07c";
-    for (let x = 1; x < 42; x += 3) ctx.fillRect(x, 46, 1, 1 + (x % 2));
-    // dock
-    ctx.fillStyle = "#c98a52";
-    ctx.fillRect(40, 51, 58, 3);
-    ctx.fillStyle = "#e0a46a";
-    ctx.fillRect(40, 51, 58, 1);
-    ctx.fillStyle = "#8c5a32";
-    for (let x = 46; x < 98; x += 8) ctx.fillRect(x, 51, 1, 3);
-    for (const px of [48, 70, 92]) {
-      ctx.fillStyle = "#8c5a32";
-      ctx.fillRect(px, 54, 3, 16);
-      ctx.fillStyle = "#6e4426";
-      ctx.fillRect(px + 2, 54, 1, 16);
+    // lily pads and a lotus
+    for (const [x, y, r] of [[236, 140, 6], [262, 151, 5], [212, 128, 4], [300, 134, 5]]) {
+      disc(l, x, y + 1, r + 1, "#1f5a3a", Math.ceil(r / 2));
+      disc(l, x, y, r, "#4fa25a", Math.ceil(r / 2));
+      disc(l, x - 1, y - 1, Math.max(1, r - 3), "#6cc06a", 1);
+      rect(l, x, y - Math.ceil(r / 2), 1, Math.ceil(r / 2) + 1, "#1f5a3a"); // the notch
+    }
+    for (const [dx, dy, c] of [[0, -3, "#ffd6e2"], [-1, -2, "#f7a8c0"], [1, -2, "#f7a8c0"], [-2, -1, "#f392b2"], [2, -1, "#f392b2"], [0, -2, "#fff0f4"], [0, -1, "#ffe27a"]]) px(l, 236 + dx, 140 + dy, c);
+
+    // the bank: grass over a dirt cliff with stones and roots
+    const edge = (y) => BANK - Math.round(3 * noise(y / 7 + 2));
+    for (let y = 100; y < SH; y++) {
+      const e = edge(y);
+      rect(l, 0, y, e, 1, y % 9 < 1 ? "#7a4e33" : "#8a5a3c");
+      rect(l, e - 2, y, 2, 1, "#6a432c");
+      px(l, e, y, "#4d3020");
+    }
+    for (let i = 0; i < 40; i++) {
+      const x = Math.floor(hash(i + 11) * 80), y = 104 + Math.floor(hash(i + 31) * 54);
+      if (x > edge(y) - 4) continue;
+      rect(l, x, y, 2 + (i % 3), 1, i % 2 ? "#a06b48" : "#74482f"); // soil grain
+    }
+    for (const [x, y, r] of [[14, 126, 5], [40, 146, 6], [66, 118, 4], [24, 152, 3], [58, 138, 3]]) {
+      disc(l, x, y, r, "#6e6e78");
+      disc(l, x - 1, y - 1, r - 1, "#8f8f9a");
+      px(l, x - r + 2, y - r + 2, "#b4b4c0");
+    }
+    for (const [x0, y0, len] of [[30, 102, 12], [52, 104, 9], [12, 103, 7]]) {
+      for (let k = 0; k < len; k++) px(l, x0 + Math.round(Math.sin(k / 2) * 1.5), y0 + k, "#4a2f1f"); // roots
+    }
+    // grass with a ragged overhang, tufts and flowers
+    rect(l, 0, 94, BANK + 2, 6, "#5cc45a");
+    rect(l, 0, 94, BANK + 2, 2, "#7fdc6e");
+    for (let x = 0; x < BANK + 2; x++) {
+      const hang = Math.floor(hash(x * 3.1) * 4);
+      rect(l, x, 100, 1, hang, "#4caa48");
+      if (hash(x + 0.5) > 0.6) px(l, x, 92 + Math.floor(hash(x + 9) * 2), "#8fe27e");
+    }
+    for (let i = 0; i < 12; i++) {
+      const x = 6 + Math.floor(hash(i + 50) * (BANK - 10));
+      px(l, x, 93, ["#ffffff", "#ffd6e2", "#ffe27a", "#c8b6ff"][i % 4]);
+      px(l, x, 94, "#3f9a40");
+    }
+    // reeds at the waterline
+    for (let i = 0; i < 9; i++) {
+      const x = BANK + 1 + i * 2 + (i % 2), tall = 10 + Math.floor(hash(i + 70) * 9);
+      rect(l, x, HORIZON + 4 - tall, 1, tall, i % 2 ? "#4f8a3c" : "#6aa84c");
+      if (i % 3 === 0) rect(l, x, HORIZON + 4 - tall - 4, 1, 4, "#7a4a2a");
+    }
+
+    // a cherry-blossom tree on the bank
+    for (let y = 30; y < 96; y++) rect(l, 18 + Math.round(Math.sin(y / 9) * 1.5), y, 7, 1, "#5a3a2c");
+    for (let y = 30; y < 96; y++) px(l, 18 + Math.round(Math.sin(y / 9) * 1.5), y, "#7a5240");
+    for (const [x0, y0, x1, y1] of [[22, 52, 44, 34], [20, 46, 4, 30], [24, 60, 50, 50]]) line(l, x0, y0, x1, y1, "#5a3a2c");
+    const blossom = [[24, 26, 18], [6, 34, 13], [44, 32, 14], [30, 44, 12], [52, 46, 9], [12, 18, 10], [36, 14, 11]];
+    for (const [x, y, r] of blossom) disc(l, x, y + 1, r, "#d97a98");
+    for (const [x, y, r] of blossom) disc(l, x, y, r - 1, "#f3a0b8");
+    for (const [x, y, r] of blossom) disc(l, x - 2, y - 2, Math.max(2, r - 5), "#f8bfd0");
+    for (let i = 0; i < 40; i++) {
+      const [bx, by, br] = blossom[i % blossom.length];
+      const a = hash(i) * Math.PI * 2, d = hash(i + 5) * (br - 2);
+      px(l, Math.round(bx + Math.cos(a) * d), Math.round(by + Math.sin(a) * d), hash(i + 9) > 0.5 ? "#ffe3ec" : "#e48aa6");
+    }
+    for (let i = 0; i < 10; i++) px(l, Math.floor(hash(i + 300) * 60), 95 + Math.floor(hash(i + 301) * 4), "#f7b6c8"); // fallen petals
+
+    // the dock: braced posts, a front beam with grain and nails, a lit plank edge
+    for (const x of POSTS) {
+      rect(l, x, 108, 6, 44, "#6e4426");
+      rect(l, x, 108, 2, 44, "#8c5a32");
+      rect(l, x + 5, 108, 1, 44, "#4e2f1a");
+      rect(l, x, 118, 6, 3, "#4f7a3a"); // algae at the waterline
+      l.globalAlpha = 0.45;
+      rect(l, x, 121, 6, 31, deep); // under water
+      l.globalAlpha = 1;
+    }
+    line(l, POSTS[0] + 5, 110, POSTS[1], 117, "#5e3a20");
+    line(l, POSTS[1] + 5, 117, POSTS[2], 110, "#5e3a20");
+    rect(l, 80, 100, 117, 2, "#e8b47a"); // plank tops catching the light
+    rect(l, 80, 102, 117, 6, "#b07a48");
+    rect(l, 80, 107, 117, 1, "#7a4e2c");
+    for (let x = 80; x < 197; x += 13) {
+      rect(l, x, 100, 1, 8, "#7a4e2c"); // plank seams
+      px(l, x + 3, 104, "#5a3a22"); // nails
+      px(l, x + 9, 104, "#5a3a22");
+    }
+    for (let i = 0; i < 26; i++) rect(l, 82 + Math.floor(hash(i + 400) * 110), 103 + Math.floor(hash(i + 401) * 4), 3 + (i % 4), 1, "#9c6a3e"); // grain
+    rect(l, 196, 100, 1, 8, "#5a3a22");
+    return [sky, land];
+  }
+
+  // Moving parts of the lake, drawn every frame.
+  function lakeLife(ctx, t, tf, s) {
+    // shimmer on the water, not over the bank or the posts
+    const glint = s.rain ? "#a9c6dd" : mix("#d6f0ff", "#5a78b0", s.dark);
+    for (let i = 0; i < 28; i++) {
+      const y = HORIZON + 4 + Math.floor(hash(i + 600) * 54);
+      const len = 3 + (i % 5);
+      const x = ((Math.floor(hash(i + 601) * SW) + Math.floor(tf * (i % 2 ? 0.6 : -0.45))) % SW + SW) % SW;
+      if (x < BANK + 4 || POSTS.some((p) => x + len > p - 2 && x < p + 8)) continue;
+      ctx.globalAlpha = 0.5 + 0.4 * Math.sin(tf / 3 + i);
+      rect(ctx, x, y, len, 1, glint);
+    }
+    ctx.globalAlpha = 1;
+    // ripples around the posts
+    for (const [k, x] of POSTS.entries()) {
+      const r = 4 + ((Math.floor(tf / 2) + k * 3) % 6);
+      ctx.globalAlpha = 0.5 - r / 20;
+      rect(ctx, x - r + 3, 121, 1, 1, "#d6f0ff");
+      rect(ctx, x + r + 2, 121, 1, 1, "#d6f0ff");
+    }
+    ctx.globalAlpha = 1;
+    // petals drifting off the tree
+    if (!s.rain) {
+      for (let i = 0; i < 7; i++) {
+        const p = (tf * 0.9 + i * 37) % 180;
+        const x = 20 + i * 9 + p * 0.9 + Math.sin(p / 7 + i) * 4, y = 30 + p * 0.45;
+        if (y > 100 || x > SW) continue;
+        px(ctx, Math.round(x), Math.round(y), i % 2 ? "#ffd6e2" : "#f392b2");
+      }
     }
   }
 
-  function bedroom(ctx, t, s) {
-    ctx.fillStyle = "#2c2542";
-    ctx.fillRect(0, 0, W, 60);
-    ctx.fillStyle = "#251f38";
-    for (let x = 0; x < W; x += 10) ctx.fillRect(x, 0, 1, 60);
-    // window with the night sky
-    ctx.fillStyle = "#1b1528";
-    ctx.fillRect(12, 8, 36, 28);
-    gradient(ctx, s.top, s.bottom, 9, 35, 13, 47);
-    stars(ctx, t, 13, 47, 9, 35, s.dark * (1 - s.rain));
-    celestial(ctx, s, 13, 47, 9, 35);
-    ctx.fillStyle = "#1b1528";
-    ctx.fillRect(29, 8, 2, 28);
-    ctx.fillRect(12, 21, 36, 2);
-    ctx.fillStyle = "#6b5a8e";
-    ctx.fillRect(10, 36, 40, 2); // sill
-    // shelf with a plant and books
-    ctx.fillStyle = "#6e4630";
-    ctx.fillRect(116, 18, 34, 3);
-    paint(ctx, ["..gg..", ".gggg.", "gggggg", "..gg..", ".pppp.", ".pppp.", "..pp.."], 120, 11, { g: "#5cc45a", p: "#c96b4a" });
-    paint(ctx, ["bb", "bb", "bb", "bb"], 134, 14, { b: "#5b8cff" });
-    paint(ctx, ["rr", "rr", "rr", "rr"], 137, 14, { r: "#e8833a" });
-    paint(ctx, ["yy", "yy", "yy"], 140, 15, { y: "#e8c84a" });
-    // floor
-    ctx.fillStyle = "#4e3528";
-    ctx.fillRect(0, 60, W, H - 60);
-    ctx.fillStyle = "#402a20";
-    for (let x = 0; x < W; x += 14) ctx.fillRect(x, 60, 1, H - 60);
-    ctx.fillStyle = "#5e4232";
-    ctx.fillRect(0, 60, W, 1);
+  // Fireflies by the reeds on clear nights; drawn after night falls so they glow.
+  function fireflies(ctx, tf, s) {
+    if (s.rain || s.dark < 0.5) return;
+    for (let i = 0; i < 7; i++) {
+      const on = Math.sin(tf / 4 + i * 2.3) > 0.2;
+      if (!on) continue;
+      const x = 70 + Math.round(30 * noise(tf / 40 + i * 3)) + i * 4, y = 74 + Math.round(22 * noise(tf / 30 + i * 7));
+      ctx.globalAlpha = 0.35;
+      disc(ctx, x, y, 2, "#e8ff8a");
+      ctx.globalAlpha = 1;
+      px(ctx, x, y, "#fbffcf");
+    }
   }
 
-  // Bed frame, mattress and pillow: behind the head. Blanket: in front, over the body.
-  function bedBack(ctx) {
-    ctx.fillStyle = "#6e4630";
-    ctx.fillRect(48, 30, 5, 38); // headboard
-    ctx.fillStyle = "#8a5a3c";
-    ctx.fillRect(49, 30, 3, 1);
-    ctx.fillStyle = "#6e4630";
-    ctx.fillRect(148, 46, 4, 22); // footboard
-    ctx.fillStyle = "#ece6f4";
-    ctx.fillRect(53, 54, 95, 8); // mattress
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(53, 42, 26, 12); // pillow
-    ctx.fillStyle = "#d8d0e6";
-    ctx.fillRect(53, 52, 26, 2);
-    ctx.fillRect(78, 43, 1, 10);
+  // ---------- the bedroom ----------
+  function bedroomLayer(s) {
+    const room = layer(), g = room.getContext("2d");
+    const day = 1 - s.dark;
+    const wall = mix("#2e2744", "#6e6084", day * 0.8), stripe = mix(wall, "#ffffff", 0.05);
+    rect(g, 0, 0, SW, 98, wall);
+    for (let x = 6; x < SW; x += 16) rect(g, x, 0, 4, 98, stripe);
+    for (let y = 8; y < 96; y += 12) for (let x = 2 + ((y / 12) % 2) * 8; x < SW; x += 16) px(g, x, y, mix(wall, "#ffffff", 0.1));
+    // wood panelling and the floor
+    rect(g, 0, 96, SW, 3, mix("#7a5440", "#2e2030", s.dark * 0.6));
+    rect(g, 0, 99, SW, 21, mix("#5e3f2e", "#2a1c18", s.dark * 0.6));
+    for (let x = 0; x < SW; x += 24) {
+      rect(g, x + 3, 102, 18, 15, mix("#664533", "#2e1f1a", s.dark * 0.6));
+      rect(g, x + 3, 102, 18, 1, mix("#7a5440", "#3a2820", s.dark * 0.6));
+    }
+    rect(g, 0, 120, SW, 40, mix("#6e4a34", "#2a1d17", s.dark * 0.55));
+    for (let y = 120; y < SH; y += 6) {
+      rect(g, 0, y, SW, 1, mix("#5a3a28", "#201612", s.dark * 0.55));
+      for (let x = (y / 6) % 2 ? 0 : 20; x < SW; x += 40) rect(g, x, y, 1, 6, mix("#5a3a28", "#201612", s.dark * 0.55));
+    }
+    // rug
+    rect(g, 70, 142, 236, 18, "#8a3d4f");
+    rect(g, 74, 145, 228, 12, "#b65a6e");
+    for (let x = 78; x < 300; x += 10) {
+      rect(g, x, 149, 5, 4, "#f2d9b8");
+      px(g, x + 2, 150, "#8a3d4f");
+    }
+    // window with curtains
+    rect(g, 22, 12, 74, 64, "#3a2c22");
+    bands(g, s.top, s.bottom, 15, 73, 6, 25, 93);
+    stars(g, 0, 25, 93, 15, 72, s.dark * (1 - s.rain));
+    g.save();
+    g.beginPath();
+    g.rect(25, 15, 68, 58);
+    g.clip();
+    celestial(g, s, 25, 93, 15, 73);
+    g.restore();
+    rect(g, 57, 15, 4, 58, "#3a2c22");
+    rect(g, 25, 42, 68, 3, "#3a2c22");
+    rect(g, 18, 74, 82, 4, "#8a6a52");
+    rect(g, 18, 74, 82, 1, "#a6866c");
+    rect(g, 12, 8, 94, 3, "#2a201a"); // curtain rod
+    disc(g, 12, 9, 2, "#c9a24a");
+    disc(g, 106, 9, 2, "#c9a24a");
+    for (const [x0, w] of [[10, 16], [92, 16]]) {
+      rect(g, x0, 10, w, 72, "#a4475c");
+      for (let x = x0 + 2; x < x0 + w; x += 4) rect(g, x, 10, 1, 72, "#7e3245");
+      rect(g, x0, 10, w, 2, "#c86a80");
+      rect(g, x0, 80, w, 2, "#7e3245");
+    }
+    // potted cactus on the sill
+    rect(g, 66, 66, 8, 8, "#c96b4a");
+    rect(g, 66, 66, 8, 1, "#e08a66");
+    rect(g, 68, 56, 4, 10, "#4f9a50");
+    rect(g, 65, 59, 2, 5, "#4f9a50");
+    rect(g, 73, 58, 2, 4, "#4f9a50");
+    px(g, 69, 57, "#7fd07a");
+    // framed picture
+    rect(g, 156, 18, 44, 30, "#6e4a34");
+    bands(g, "#9fd2ff", "#ffe0b0", 21, 45, 3, 159, 197);
+    for (let x = 159; x < 197; x++) rect(g, x, 45 - Math.round(8 * noise(x / 6)), 1, Math.round(8 * noise(x / 6)), "#4f8a5a");
+    disc(g, 188, 27, 2, "#ffd257");
+    // shelf with books, a plant and a jar
+    rect(g, 226, 40, 74, 4, "#6e4630");
+    rect(g, 226, 44, 74, 1, "#4a2f20");
+    let bx = 230;
+    for (const [w, h, c] of [[5, 16, "#5b8cff"], [4, 13, "#e8833a"], [6, 18, "#e8c84a"], [4, 14, "#8a5ab0"], [5, 17, "#4fa25a"], [3, 12, "#e1262b"]]) {
+      rect(g, bx, 40 - h, w, h, c);
+      rect(g, bx, 40 - h, 1, h, mix(c, "#ffffff", 0.3));
+      rect(g, bx, 40 - h + 3, w, 1, mix(c, "#000000", 0.3));
+      bx += w + 1;
+    }
+    rect(g, 270, 30, 8, 10, "#c96b4a");
+    for (const [x, y, r] of [[274, 26, 5], [270, 23, 3], [278, 22, 3]]) disc(g, x, y, r, "#4f9a50");
+    for (let y = 40; y < 62; y += 3) px(g, 279 + ((y / 3) % 2), y, "#4f9a50"); // trailing leaves
+    rect(g, 284, 32, 7, 8, "#b8d8f0");
+    rect(g, 284, 30, 7, 2, "#8a6a52");
+    // nightstand with a lamp
+    rect(g, 52, 96, 40, 24, "#7a5238");
+    rect(g, 52, 96, 40, 2, "#9a6a48");
+    rect(g, 56, 102, 32, 7, "#664330");
+    rect(g, 70, 105, 4, 1, "#c9a24a");
+    rect(g, 66, 90, 12, 6, "#8a6a52");
+    rect(g, 70, 80, 4, 10, "#5a4030");
+    const lampOn = s.dark > 0.3;
+    for (let r = 0; r < 9; r++) rect(g, 63 - Math.floor(r / 2), 70 + r, 18 + Math.floor(r / 2) * 2, 1, lampOn ? "#ffd889" : "#d8c49a");
+    // bed frame, mattress and pillow (behind her)
+    rect(g, 96, 58, 12, 64, "#6e4630");
+    rect(g, 96, 58, 12, 3, "#9a6a48");
+    disc(g, 102, 58, 6, "#6e4630", 3);
+    rect(g, 98, 66, 8, 50, "#7e5238");
+    rect(g, 292, 90, 8, 32, "#6e4630");
+    rect(g, 292, 90, 8, 2, "#9a6a48");
+    rect(g, 108, 106, 184, 8, "#ece6f4");
+    rect(g, 108, 112, 184, 2, "#cfc6e0");
+    rect(g, 108, 114, 184, 8, "#7e5238");
+    rect(g, 108, 114, 184, 1, "#9a6a48");
+    rect(g, 110, 122, 4, 6, "#5a3a28");
+    rect(g, 286, 122, 4, 6, "#5a3a28");
+    disc(g, 134, 98, 24, "#ffffff", 9);
+    disc(g, 134, 101, 24, "#dcd4ea", 6);
+    disc(g, 134, 97, 22, "#ffffff", 7);
+    rect(g, 116, 96, 36, 1, "#ece6f4");
+    return room;
   }
 
-  function blanket(ctx, outfit, breath) {
-    const top = 47 - breath;
-    const base = mix(outfit, "#6b7fd6", 0.55);
-    ctx.fillStyle = base;
-    ctx.fillRect(53, top, 95, 62 - top);
-    ctx.fillRect(92, top - 3, 36, 3); // hip and knee hump
-    ctx.fillRect(97, top - 4, 24, 1);
-    ctx.fillStyle = mix(base, "#ffffff", 0.35);
-    ctx.fillRect(53, top, 95, 2); // folded-over edge
-    ctx.fillRect(97, top - 4, 24, 1);
-    ctx.fillStyle = mix(base, "#1a1030", 0.3);
-    ctx.fillRect(53, top + 2, 95, 1);
-    for (let x = 62; x < 148; x += 12) ctx.fillRect(x, top + 4, 1, 62 - top - 4);
-    ctx.fillStyle = "#3b2f3f";
-    ctx.fillRect(53, 62, 95, 4);
+  // The lamp's warm pool of light, after night falls so it glows.
+  function lampGlow(ctx, s) {
+    if (s.dark <= 0.3) return;
+    for (const [r, a] of [[46, 0.06], [30, 0.08], [16, 0.1]]) {
+      ctx.globalAlpha = a * s.dark;
+      disc(ctx, 72, 78, r, "#ffcf7a", Math.round(r * 0.7));
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Quilted blanket. `flat`: smoothed over the bed (she naps on top); otherwise pulled up to
+  // her chin with a hump where her body is.
+  function blanket(ctx, outfit, breath, flat = false) {
+    const top = flat ? 104 : 94 - breath, x0 = flat ? 160 : 106, x1 = 292;
+    const base = mix(outfit, "#6b7fd6", 0.55), dark = mix(base, "#1a1030", 0.3), lit = mix(base, "#ffffff", 0.3);
+    rect(ctx, x0, top, x1 - x0, 122 - top, base);
+    if (!flat) {
+      disc(ctx, 214, top + 2, 46, base, 7); // hip and knees
+      disc(ctx, 214, top - 1, 42, lit, 1);
+    }
+    for (let x = x0 + 8; x < x1; x += 14) rect(ctx, x, top + 4, 1, 122 - top - 4, dark); // quilting
+    for (let y = top + 10; y < 122; y += 9) rect(ctx, x0, y, x1 - x0, 1, dark);
+    for (let x = x0 + 15; x < x1; x += 14) for (let y = top + 15; y < 122; y += 9) px(ctx, x, y, lit);
+    rect(ctx, x0, top, x1 - x0, 4, "#f4f0fa"); // the sheet folded over
+    rect(ctx, x0, top + 4, x1 - x0, 1, "#cfc6e0");
+    rect(ctx, x0, 122, x1 - x0, 1, dark);
+  }
+
+  // Off-screen layer the size of the scene.
+  function layer() {
+    const c = document.createElement("canvas");
+    c.width = SW;
+    c.height = SH;
+    return c;
   }
 
   // ---------- scenes (full-resolution coordinates: 320×160) ----------
@@ -430,17 +754,41 @@ window.koritsuScene = (() => {
 
   const DOCK_TOP = 51 * S;
 
-  // Idle: strolls along the dock, pausing at each end.
-  function strolling(ctx, t, f) {
-    const P = 240, p = t % P, a = 104, b = 176;
-    let x = a, flip = true, walking = false;
-    if (p < 60) x = a;
-    else if (p < 120) { x = a + ((b - a) * (p - 60)) / 60; walking = true; }
-    else if (p < 180) { x = b; flip = false; }
-    else { x = b - ((b - a) * (p - 180)) / 60; walking = true; flip = false; }
-    const img = walking ? f.frames[t % FRAMES] : p % 48 === 47 ? f.shut : f.frames[0];
-    // Sprite faces left as drawn; flip to face right.
-    drawFacing(ctx, img, x, DOCK_TOP, flip);
+  // Idle: a little routine on the dock. [what, ticks, from x, to x, face right]
+  const IDLE = [
+    ["eating", 64, 104, 104, false],
+    ["walk", 60, 104, 176, true],
+    ["hopping", 24, 176, 176, true],
+    ["stand", 24, 176, 176, true],
+    ["walk", 60, 176, 104, false],
+    ["stand", 24, 104, 104, false],
+  ];
+  const IDLE_TICKS = IDLE.reduce((n, seg) => n + seg[1], 0);
+
+  function strolling(ctx, t, tf, f) {
+    let p = tf % IDLE_TICKS, seg = IDLE[0];
+    for (seg of IDLE) {
+      if (p < seg[1]) break;
+      p -= seg[1];
+    }
+    const [what, len, from, to, right] = seg;
+    const x = from + ((to - from) * p) / len; // glides at the redraw rate, not 8 fps
+    if (what !== "walk" && what !== "stand" && f.anims[what]) {
+      return drawAnim(ctx, f, what, frameAt(anims[what], p * TICK), x, DOCK_TOP, right);
+    }
+    const img = what === "walk" ? f.frames[t % FRAMES] : t % 48 === 47 ? f.shut : f.frames[0];
+    drawFacing(ctx, img, x, DOCK_TOP, right);
+  }
+
+  // One frame of an extra animation, feet at (cx, feetY).
+  function drawAnim(ctx, f, name, i, cx, feetY, faceRight) {
+    const img = f.anims[name]?.[i];
+    if (!img) return;
+    ctx.save();
+    ctx.translate(Math.round(cx), Math.round(feetY - anims[name].ground));
+    if (faceRight) ctx.scale(-1, 1);
+    ctx.drawImage(img, -FW / 2, 0);
+    ctx.restore();
   }
 
   function drawFacing(ctx, img, cx, feetY, faceRight) {
@@ -518,6 +866,19 @@ window.koritsuScene = (() => {
     }
   }
 
+  // Break: she jumps onto the bed and curls up on top of the covers, then breathes slowly.
+  // Returns where her head ends up, for the Zz.
+  const BED_TOP = 55 * S;
+  function napping(ctx, t, f, since) {
+    const a = anims["to-bed"];
+    if (!a || !f.anims["to-bed"]) return null;
+    const i = frameAt(a, since, true);
+    const settled = since >= a.total;
+    const breathe = settled && Math.floor(t / 8) % 2 ? 1 : 0;
+    drawAnim(ctx, f, "to-bed", i, 186, BED_TOP + breathe, false);
+    return settled ? [160, BED_TOP - 44] : null;
+  }
+
   // In bed: head and ears upright on the pillow, peeking over the blanket, turned toward the
   // phone. (Turning the whole sprite on its side made the head unreadable at this size.)
   function lying(ctx, t, f, mode) {
@@ -535,59 +896,80 @@ window.koritsuScene = (() => {
   let state = { mood: "idle", productive: "fishing", weather: "auto", sky: "auto", character: {} };
   // The Sky setting pins the scene to one time of day; "auto" follows the clock.
   const FIXED_HOUR = { day: 12, sunset: 18.25, night: 23 };
-  let t = 0;
-  const back = document.createElement("canvas"), front = document.createElement("canvas"), skyfx = document.createElement("canvas");
-  back.width = front.width = skyfx.width = W;
-  back.height = front.height = skyfx.height = H;
+  let t = 0, tf = 0; // whole ticks (sprite frames), fractional ticks (smooth motion)
+  let clock = 0, moodAt = 0; // ms the scene has been running; when the mood last changed
+  const glow = layer(); // stars, sun and moon, cut out wherever the land is
+  // The static background, redrawn only when the sky's colour (or the room) changes.
+  const bg = { key: "", layers: [] };
+  function background(indoors, s) {
+    const key = `${indoors}|${s.top}|${s.bottom}|${s.rain}|${s.dark.toFixed(2)}|${Math.floor(s.hour * 4)}`;
+    if (bg.key !== key) {
+      bg.layers = indoors ? [bedroomLayer(s)] : lakeLayers(s);
+      bg.key = key;
+    }
+    return bg.layers;
+  }
 
   function draw(canvas) {
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, W * S, H * S);
+    ctx.clearRect(0, 0, SW, SH);
     const f = frames(state.character);
-    const b = back.getContext("2d"), fr = front.getContext("2d");
-    b.clearRect(0, 0, W, H);
-    fr.clearRect(0, 0, W, H);
     const now = new Date();
     const rain = rainAt(state.weather, now);
     const s = sky(FIXED_HOUR[state.sky] ?? now.getHours() + now.getMinutes() / 60, rain);
     const indoors = state.mood === "wasted" || state.mood === "break";
+    const since = clock - moodAt;
+    const napAnim = state.mood === "break" && !!f.anims["to-bed"];
+    const outfit = state.character.outfit || "#e1262b";
+    const breath = state.mood === "break" ? Math.floor(t / 8) % 2 : 0;
+
     if (indoors) {
-      bedroom(b, t, s);
-      bedBack(b);
-      blanket(fr, state.character.outfit || "#e1262b", state.mood === "break" ? Math.floor(t / 8) % 2 : 0);
+      ctx.drawImage(background(true, s)[0], 0, 0);
+      if (napAnim) blanket(ctx, outfit, 0, true); // she naps on top of the covers
     } else {
-      outdoors(b, t, s);
+      const [skyLayer, land] = background(false, s);
+      ctx.drawImage(skyLayer, 0, 0);
+      clouds(ctx, tf, s);
+      ctx.drawImage(land, 0, 0);
+      lakeLife(ctx, t, tf, s);
     }
-    ctx.drawImage(back, 0, 0, W * S, H * S);
-    if (state.mood === "productive") sitting(ctx, t, f, state.productive === "reading" ? "book" : "rod");
+
+    let zz = null;
+    if (state.mood === "productive") {
+      // a happy hop at the end of the dock, then she sits down to fish or read
+      const hop = anims.hopping;
+      if (hop && f.anims.hopping && since < hop.total) drawAnim(ctx, f, "hopping", frameAt(hop, since), 172, DOCK_TOP, true);
+      else sitting(ctx, t, f, state.productive === "reading" ? "book" : "rod");
+    } else if (napAnim) zz = napping(ctx, t, f, since);
     else if (indoors) lying(ctx, t, f, state.mood === "break" ? "sleep" : "phone");
-    else strolling(ctx, t, f);
-    ctx.drawImage(front, 0, 0, W * S, H * S);
+    else strolling(ctx, t, tf, f);
+
     if (indoors) {
-      if (rain) windowRain(ctx, t);
+      if (!napAnim) blanket(ctx, outfit, breath, false);
+      lampGlow(ctx, s);
+      if (rain) windowRain(ctx, tf);
     } else {
-      // Night dims the whole picture evenly; the stars, sun and moon go on top so they shine.
+      // Night dims the whole picture evenly; stars, sun, moon and fireflies go on top to shine.
       if (s.dark > 0.01) {
         ctx.globalCompositeOperation = "multiply";
         ctx.fillStyle = mix("#ffffff", "#2c3570", s.dark * 0.6);
-        ctx.fillRect(0, 0, W * S, H * S);
+        ctx.fillRect(0, 0, SW, SH);
         ctx.globalCompositeOperation = "source-over";
       }
-      const fx = skyfx.getContext("2d");
-      fx.clearRect(0, 0, W, H);
-      stars(fx, t, 0, W, 0, 40, s.dark * (1 - s.rain));
-      fx.save();
-      fx.beginPath();
-      fx.rect(0, 0, W, 40); // behind the hills
-      fx.clip();
-      celestial(fx, s);
-      fx.restore();
-      ctx.drawImage(skyfx, 0, 0, W * S, H * S);
-      if (rain) rainfall(ctx, t, s);
+      const g = glow.getContext("2d");
+      g.clearRect(0, 0, SW, SH);
+      stars(g, t, 0, SW, 0, 72, s.dark * (1 - s.rain));
+      celestial(g, s, 0, SW, 0, 92);
+      g.globalCompositeOperation = "destination-out";
+      g.drawImage(background(false, s)[1], 0, 0);
+      g.globalCompositeOperation = "source-over";
+      ctx.drawImage(glow, 0, 0);
+      fireflies(ctx, tf, s);
+      if (rain) rainfall(ctx, tf, s);
     }
     if (state.mood === "wasted") phone(ctx, t);
-    if (state.mood === "break") zzz(ctx, t);
+    if (state.mood === "break" && (zz || !napAnim)) zzz(ctx, t, ...(zz || [148, 62]));
   }
 
   // Slanted streaks falling across the whole scene, with rings where drops hit the water.
@@ -597,7 +979,7 @@ window.koritsuScene = (() => {
       const speed = 9 + (i % 4);
       const land = 108 + ((i * 53) % 52); // where this drop hits the water or dock
       const cycle = land + 20;
-      const y = ((i * 37 + t * speed) % cycle) - 20;
+      const y = ((i * 37 + Math.floor(t * speed)) % cycle) - 20;
       const x = ((i * 71) % (W * S + 40)) - y * 0.35;
       if (y < land) {
         ctx.globalAlpha = 0.55;
@@ -618,7 +1000,7 @@ window.koritsuScene = (() => {
     ctx.fillStyle = "#b8c8f0";
     for (let i = 0; i < 22; i++) {
       const x = 28 + ((i * 13) % 64);
-      const y = 18 + ((i * 19 + t * (3 + (i % 3))) % 52);
+      const y = 18 + ((i * 19 + Math.floor(t * (3 + (i % 3)))) % 52);
       ctx.globalAlpha = 0.45;
       ctx.fillRect(x, y, 1, 3);
     }
@@ -646,10 +1028,10 @@ window.koritsuScene = (() => {
     ctx.globalAlpha = 1;
   }
 
-  function zzz(ctx, t) {
+  function zzz(ctx, t, x0, y0) {
     for (let i = 0; i < 3; i++) {
       const p = (t + i * 10) % 30;
-      const zx = 148 + i * 12 + Math.floor(p / 3), zy = 62 - p;
+      const zx = x0 + i * 12 + Math.floor(p / 3), zy = y0 - p;
       ctx.globalAlpha = 1 - p / 30;
       paint(ctx, ["oooooo", "....o.", "...o..", "..o...", ".o....", "oooooo"], zx, zy, { o: "#e8e6ff" });
       ctx.globalAlpha = 1;
@@ -661,7 +1043,13 @@ window.koritsuScene = (() => {
   }
 
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  let last = performance.now();
   setInterval(() => {
+    const now = performance.now();
+    if (!reduced.matches) clock += now - last; // reduced motion: the scene holds still
+    last = now;
+    tf = clock / TICK;
+    t = Math.floor(tf);
     for (const [id, canvas] of canvases) {
       if (!canvas.isConnected) {
         canvases.delete(id);
@@ -669,7 +1057,6 @@ window.koritsuScene = (() => {
       }
       draw(canvas);
     }
-    if (!reduced.matches) t++;
   }, 1000 / FPS);
 
   return {
@@ -682,6 +1069,7 @@ window.koritsuScene = (() => {
       draw(canvas);
     },
     update(next) {
+      if (next.mood && next.mood !== state.mood) moodAt = clock; // restart the transition animations
       state = { ...state, ...next, character: next.character ?? state.character };
       redrawAll();
     },
