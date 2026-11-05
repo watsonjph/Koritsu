@@ -84,7 +84,7 @@ pub fn TrackTab() -> Element {
         div { class: "tab track-tab",
             if show_scene {
                 div { class: "scene-card",
-                    crate::scene::Scene {}
+                    crate::scene::Scene { preview: None }
                     // Only while something runs: what it is and for how long. Tap to switch activity.
                     if live {
                         div { class: "hud",

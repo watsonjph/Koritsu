@@ -230,6 +230,8 @@ pub struct Character {
     /// Where she goes while you're productive, and while you're wasting time.
     pub productive_place: ProductivePlace,
     pub wasted_place: WastedPlace,
+    /// Seconds each thought bubble stays up; 0 turns them off.
+    pub bubble_secs: u32,
     /// Keep animating while another window has focus; off pauses it, like a wallpaper engine.
     pub animate_unfocused: bool,
 }
@@ -246,6 +248,7 @@ impl Default for Character {
             sky: SkyMode::Auto,
             productive_place: ProductivePlace::Travel,
             wasted_place: WastedPlace::Commute,
+            bubble_secs: 5,
             animate_unfocused: false,
         }
     }
@@ -356,10 +359,19 @@ pub enum ProductivePlace {
     Lake,
     Fuji,
     Tokyo,
+    Akiba,
+    Inaka,
 }
 
 impl ProductivePlace {
-    pub const ALL: [ProductivePlace; 4] = [ProductivePlace::Travel, ProductivePlace::Lake, ProductivePlace::Fuji, ProductivePlace::Tokyo];
+    pub const ALL: [ProductivePlace; 6] = [
+        ProductivePlace::Travel,
+        ProductivePlace::Lake,
+        ProductivePlace::Fuji,
+        ProductivePlace::Tokyo,
+        ProductivePlace::Akiba,
+        ProductivePlace::Inaka,
+    ];
 
     pub fn key(self) -> &'static str {
         match self {
@@ -367,6 +379,8 @@ impl ProductivePlace {
             ProductivePlace::Lake => "lake",
             ProductivePlace::Fuji => "fuji",
             ProductivePlace::Tokyo => "tokyo",
+            ProductivePlace::Akiba => "akiba",
+            ProductivePlace::Inaka => "inaka",
         }
     }
 }

@@ -3,7 +3,8 @@
 // the sprite is drawn at full detail on top.
 //
 // Moods: idle (strolling where she last was), productive (travelling: fishing at the lake, then
-// studying at a konbini under Mt Fuji and on a Tokyo street), wasted (on a train,
+// studying at a konbini under Mt Fuji, on a Tokyo street, in Akihabara and out in the
+// countryside), wasted (on a train,
 // doomscrolling), break (asleep). The outdoor sky follows the local time of day.
 window.koritsuScene = (() => {
   const W = 160, H = 100, S = 2; // scene size in double pixels: 320x200 drawn
@@ -1143,6 +1144,15 @@ window.koritsuScene = (() => {
     text(ctx, msg, 202, 9, "#ffa040");
   }
 
+  // A bench's backrest (two slats on posts), drawn behind her so she reads as sitting.
+  function bench(g, x, seat, w) {
+    for (const px0 of [x + 2, x + w - 4]) rect(g, px0, seat - 15, 2, 15, "#5e4030");
+    for (const y of [seat - 14, seat - 8]) {
+      rect(g, x, y, w, 3, "#8a5c3c");
+      rect(g, x, y, w, 1, "#a8784e");
+    }
+  }
+
   // ---------- productive travels: a konbini under Mt Fuji, a Tokyo ramen street ----------
   // Each is [sky, land]: the sky keeps the hour's own colours; the land is tinted for night,
   // then its lit windows and signs are drawn over it (the "lights" functions) so they glow.
@@ -1269,6 +1279,7 @@ window.koritsuScene = (() => {
     rect(l, 302, 152, 12, 3, "#e0525a");
     rect(l, 305, 159, 6, 2, "#2a1a1e");
     // a bench out front
+    bench(l, 198, 178, 54);
     rect(l, 198, 178, 54, 3, "#9a6a46");
     rect(l, 198, 178, 54, 1, "#b88a60");
     rect(l, 198, 181, 54, 1, "#6e4a30");
@@ -1447,6 +1458,7 @@ window.koritsuScene = (() => {
     for (let x = 192; x < 232; x += 13) rect(l, x, 92, 1, 15, "#0f182e");
     const men = kanjiGlyph(cp(0x9eba), 10, "#f4f0e8"); // 麺
     l.drawImage(men.c, 206 - Math.round(men.w / 2), 94);
+    bench(l, 120, 116, 58);
     rect(l, 120, 116, 58, 3, "#9a6a46");
     rect(l, 120, 119, 58, 1, "#6e4a30");
     for (const x of [124, 172]) rect(l, x, 120, 3, 8, "#2b2a30");
@@ -1521,6 +1533,325 @@ window.koritsuScene = (() => {
     }
   }
 
+  // ---------- Akihabara: towers, signs, an elevated railway and an arcade (full 320×200) ----------
+  const SKYLINE = [];
+  for (let x = -6, n = 0; x < SW; n++) {
+    const w = 16 + Math.floor(hash(n * 9 + 2) * 22);
+    SKYLINE.push([x, w, 40 + Math.floor(hash(n * 4 + 5) * 60)]);
+    x += w + 1;
+  }
+  const AKIBA_WINDOWS = []; // lit at night: [x, y]
+  for (const [x0, x1, y0, y1] of [[80, 136, 104, 176], [144, 210, 98, 140], [216, 258, 46, 140]]) {
+    for (let y = y0; y < y1; y += 7) for (let x = x0; x < x1; x += 6) AKIBA_WINDOWS.push([x, y]);
+  }
+
+  function akibaLayers(s) {
+    const sky = layer(), g = sky.getContext("2d");
+    bands(g, s.top, s.bottom, 0, 170, 8);
+    stars(g, 0, 0, SW, 0, 80, s.dark * (1 - s.rain));
+    celestial(g, s, 0, SW, 0, 70);
+
+    const back = layer(), b = back.getContext("2d");
+    // hazy skyline
+    for (const [x, w, h] of SKYLINE) {
+      const c = mix("#6c5a68", s.bottom, 0.45);
+      rect(b, x, 150 - h, w, h, c);
+      for (let y = 154 - h; y < 150; y += 5) rect(b, x + 2, y, w - 4, 1, mix(c, "#ffffff", 0.08));
+    }
+    // a glass tower on the right, a banded tower beside it
+    rect(b, 262, 6, 58, 170, "#3c4a58");
+    for (let y = 10; y < 170; y += 4) for (let x = 265; x < 320; x += 4) rect(b, x, y, 2, 2, "#4f6072");
+    rect(b, 262, 6, 2, 170, "#566a80");
+    rect(b, 216, 40, 44, 136, "#8a7470");
+    for (let y = 44; y < 176; y += 7) rect(b, 216, y, 44, 2, "#76625e");
+    // the department store on the left, and the blocks between
+    rect(b, 0, 16, 78, 160, "#7a5e52");
+    for (let x = 4; x < 78; x += 10) rect(b, x, 20, 1, 156, "#6a5046");
+    rect(b, 0, 16, 78, 3, "#8e7064");
+    rect(b, 78, 98, 62, 78, "#a0867a");
+    rect(b, 140, 92, 74, 84, "#8e6e60");
+    for (const [x, y] of AKIBA_WINDOWS) rect(b, x, y, 4, 4, "#4a3a3a");
+    // rooftop billboard frame and its legs
+    for (const x of [156, 196]) rect(b, x, 86, 2, 8, "#3a3036");
+    rect(b, 148, 58, 60, 28, "#3a3036");
+    // the elevated railway: overhead line poles, the deck, arches below
+    for (let x = 10; x < SW; x += 62) {
+      rect(b, x, 112, 2, 26, "#2e282c");
+      rect(b, x - 4, 114, 10, 1, "#2e282c");
+    }
+    for (let x = 0; x < SW; x++) px(b, x, 116 + Math.round(2 * Math.sin(((x % 62) / 62) * Math.PI)), "#221e22");
+    rect(b, 0, 138, SW, 7, "#3a3236");
+    rect(b, 0, 138, SW, 1, "#5a4e52");
+    rect(b, 0, 145, SW, 31, "#2e282c");
+    for (let x = 6; x < SW; x += 40) {
+      rect(b, x, 154, 28, 22, "#1a1618");
+      disc(b, x + 14, 154, 14, "#1a1618", 6);
+    }
+    nightTint(back, s, 0.5);
+
+    const front = layer(), f = front.getContext("2d");
+    // the arcade building, in front of the railway
+    rect(f, 222, 84, 98, 92, "#b84a3a");
+    for (let y = 92; y < 176; y += 8) rect(f, 222, y, 98, 1, "#9c3c30");
+    for (let x = 226; x < 320; x += 12) rect(f, x, 84, 1, 92, "#9c3c30");
+    rect(f, 238, 104, 66, 40, "#1e1a22"); // the screen's frame
+    // the street below, and the footbridge railing in front
+    rect(f, 0, 176, SW, 24, "#2c2a30");
+    rect(f, 0, 176, SW, 3, "#4a4652");
+    for (let x = 210; x < 310; x += 12) rect(f, x, 184, 7, 8, "#c9cad0");
+    rect(f, 0, 168, SW, 2, "#8e8a96");
+    for (let x = 4; x < SW; x += 12) rect(f, x, 170, 2, 18, "#6e6a78");
+    rect(f, 0, 178, SW, 1, "#6e6a78");
+    rect(f, 0, 188, SW, 12, "#5a5662");
+    rect(f, 0, 188, SW, 1, "#7a7684");
+    // a bench on the bridge
+    bench(f, 132, 180, 56);
+    rect(f, 132, 180, 56, 3, "#9a6a46");
+    rect(f, 132, 180, 56, 1, "#b88a60");
+    for (const x of [136, 182]) rect(f, x, 183, 2, 5, "#4a4450");
+    nightTint(front, s, 0.5);
+    return [sky, back, front];
+  }
+
+  // An orange-striped train along the viaduct, every so often.
+  function viaductTrain(ctx, tf, s) {
+    const x0 = Math.round(SW + 30 - ((tf * 5) % 1400));
+    if (x0 > SW || x0 < -300) return;
+    const night = s.dark > 0.3;
+    for (let i = 0; i < 4; i++) {
+      const x = x0 + i * 66;
+      rect(ctx, x, 120, 64, 18, "#c9ccd4");
+      rect(ctx, x, 120, 64, 1, "#e4e6ea");
+      rect(ctx, x, 131, 64, 3, "#f08a2a");
+      for (let k = 4; k < 60; k += 9) rect(ctx, x + k, 123, 6, 6, night ? "#ffe9a8" : "#3a4a5a");
+      rect(ctx, x, 136, 64, 2, "#5d6066");
+    }
+    rect(ctx, x0 - 3, 122, 3, 14, "#c9ccd4");
+    rect(ctx, x0 - 3, 124, 2, 5, night ? "#fff6c0" : "#3a4a5a");
+  }
+
+  // Signs on the buildings behind the railway, and windows at night.
+  function akibaBack(ctx, t, s) {
+    if (s.dark > 0.3) for (const [i, [x, y]] of AKIBA_WINDOWS.entries()) if (hash(i + 7) > 0.45) rect(ctx, x, y, 4, 4, "#ffd98a");
+    // department store: the KORI sign up top, a duty-free banner down its side
+    rect(ctx, 6, 22, 66, 18, "#24394a");
+    text(ctx, "KORI", 28, 26, "#ffffff");
+    foxMark(ctx, 14, 26);
+    text(ctx, "DEPT", 28, 33, "#f08a2a");
+    rect(ctx, 6, 48, 14, 76, "#fbf8f4");
+    [0x514d, 0x7a0e].forEach((code, i) => { // 免税, down the banner
+      const k = kanjiGlyph(cp(code), 9, "#c8323c");
+      ctx.drawImage(k.c, 13 - Math.round(k.w / 2), 51 + i * 10);
+    });
+    ["T", "A", "X", "F", "R", "E", "E"].forEach((ch, i) => text(ctx, ch, 12, 70 + i * 7, "#2d4f8a"));
+    // karaoke box sign, a book shop sign, a game banner
+    rect(ctx, 82, 62, 56, 22, "#c8323c");
+    rect(ctx, 84, 64, 52, 18, "#fbf8f4");
+    const kara = kanjiGlyph(cp(0x30ab, 0x30e9, 0x30aa, 0x30b1), 11, "#c8323c"); // カラオケ
+    ctx.drawImage(kara.c, 110 - Math.round(kara.w / 2), 66);
+    rect(ctx, 86, 88, 48, 16, "#ffd84a");
+    text(ctx, "BOOKS", 110 - Math.floor(textWidth("BOOKS") / 2), 91, "#2d4f8a");
+    text(ctx, "100Y", 110 - Math.floor(textWidth("100Y") / 2), 98, "#c8323c");
+    rect(ctx, 198, 96, 12, 40, "#f08a2a");
+    [0x30b2, 0x30fc, 0x30e0].forEach((code, i) => { // ゲーム, down the banner
+      const k = kanjiGlyph(cp(code === 0x30fc ? 0x4e28 : code), 8, "#ffffff");
+      ctx.drawImage(k.c, 204 - Math.round(k.w / 2), 99 + i * 11);
+    });
+    // the rooftop billboard: two cans of a drink
+    rect(ctx, 150, 60, 56, 24, "#f4f0e0");
+    for (const [x, c] of [[160, "#e0484d"], [182, "#3f8fd8"]]) {
+      rect(ctx, x, 63, 12, 18, c);
+      rect(ctx, x, 63, 12, 2, "#d8d8dc");
+      rect(ctx, x + 2, 69, 8, 6, "#ffffff");
+    }
+    text(ctx, "COLD", 196 - textWidth("COLD"), 76, "#2d4f8a");
+  }
+
+  // The arcade's bulbs, sign and screen (a little fox running), and traffic below.
+  function akibaFront(ctx, t, tf, s) {
+    rect(ctx, 226, 88, 90, 13, "#e0484d");
+    text(ctx, "KORI GAMES", 271 - Math.floor(textWidth("KORI GAMES") / 2), 92, "#ffffff");
+    for (let x = 224; x < 320; x += 6) {
+      const on = (x / 6 + Math.floor(t / 3)) % 2 === 0;
+      px(ctx, x, 86, on ? "#fff3b0" : "#9a6a3a");
+      px(ctx, x + 3, 102, on ? "#9a6a3a" : "#fff3b0");
+    }
+    // the screen: sky, scrolling hills, a fox bounding along
+    rect(ctx, 240, 106, 62, 36, "#7ec8f0");
+    for (let x = 240; x < 302; x++) rect(ctx, x, 130 - Math.round(5 * noise((x + tf * 2) / 9)), 1, 12 + Math.round(5 * noise((x + tf * 2) / 9)), "#3fae5a");
+    const hop = Math.abs(Math.sin(tf / 3)) * 6;
+    foxMark(ctx, 262, Math.round(118 - hop));
+    for (let k = 0; k < 3; k++) px(ctx, 296 - ((Math.floor(tf * 2) + k * 20) % 56), 112 + k * 4, "#ffffff");
+    text(ctx, "AKIHABARA", 271 - Math.floor(textWidth("AKIHABARA") / 2), 148, "#ffffff");
+    const akiba = kanjiGlyph(cp(0x79cb, 0x8449, 0x539f), 12, "#fbf8f4"); // 秋葉原
+    ctx.drawImage(akiba.c, 271 - Math.round(akiba.w / 2), 155);
+    // a van crossing the street now and then
+    const vx = Math.round(((tf * 3) % 700) - 60);
+    if (vx < SW) {
+      rect(ctx, vx, 176, 26, 9, "#e8e6e0");
+      rect(ctx, vx + 18, 177, 6, 4, "#3a4a5a");
+      rect(ctx, vx + 24, 180, 2, 2, s.dark > 0.3 ? "#fff6c0" : "#d8d8dc");
+    }
+  }
+
+  // ---------- Rural Japan: a lane under a big tree, a tram, an old shop (full 320×200) ----------
+  // Countryside houses: [x, width, roof top, floors].
+  const HOUSES = [[-8, 56, 58, 2], [50, 70, 40, 2], [124, 40, 76, 1]];
+  // Their shoji windows: [x, y, w, h].
+  const houseWindows = ([x, w, top, floors]) => {
+    const out = [];
+    const rows = floors === 2 ? [top + 18, top + 46] : [top + 20];
+    for (const y of rows) for (let k = x + 7; k + 12 <= x + w - 4; k += 18) out.push([k, y, 12, 12]);
+    return out;
+  };
+  function house(g, hs) {
+    const [x, w, top, floors] = hs, wall = top + 12, ground = 150;
+    rect(g, x, wall, w, ground - wall, "#e9e3d6");
+    for (let k = x; k < x + w; k += 18) rect(g, k, wall, 2, ground - wall, "#5a4636");
+    rect(g, x + w - 2, wall, 2, ground - wall, "#5a4636");
+    rect(g, x, wall, w, 2, "#5a4636");
+    if (floors === 2) {
+      // a little tiled eave between the floors
+      const mid = wall + 28;
+      rect(g, x - 4, mid - 4, w + 8, 3, "#4c5160");
+      rect(g, x - 4, mid - 1, w + 8, 1, "#2e313b");
+    }
+    for (const [wx, wy, ww, wh] of houseWindows(hs)) {
+      rect(g, wx - 1, wy - 1, ww + 2, wh + 2, "#5a4636");
+      rect(g, wx, wy, ww, wh, "#f1ead8");
+      for (let k = wx + 3; k < wx + ww; k += 4) rect(g, k, wy, 1, wh, "#a8977e");
+      rect(g, wx, wy + Math.floor(wh / 2), ww, 1, "#a8977e");
+    }
+    // hipped tile roof: a short ridge widening to overhanging eaves
+    for (let r = 0; r < 12; r++) {
+      const inset = Math.round((11 - r) * 1.3);
+      rect(g, x - 6 + inset, top + r, w + 12 - inset * 2, 1, r % 3 === 2 ? "#3a3e4a" : "#4c5160");
+    }
+    rect(g, x - 6 + 14, top - 1, Math.max(4, w + 12 - 28), 2, "#2e313b");
+    rect(g, x - 7, top + 12, w + 14, 1, "#2e313b");
+  }
+
+  function inakaLayers(s) {
+    const sky = layer(), g = sky.getContext("2d");
+    bands(g, s.top, s.bottom, 0, 150, 7);
+    stars(g, 0, 0, SW, 0, 70, s.dark * (1 - s.rain));
+    celestial(g, s, 0, SW, 0, 60);
+
+    const back = layer(), b = back.getContext("2d");
+    // hills, then houses with tiled gable roofs
+    const hill = mix("#5f8a62", s.bottom, 0.35);
+    for (let x = 0; x < SW; x++) {
+      const h = Math.round(20 * noise(x / 34 + 2) + 8 * noise(x / 9));
+      rect(b, x, 104 - h, 1, h + 40, hill);
+    }
+    for (const h of HOUSES) house(b, h);
+    // the utility pole with its vertical signs, and wires
+    rect(b, 22, 0, 6, 170, "#6e6a64");
+    rect(b, 23, 0, 1, 170, "#86827c");
+    rect(b, 12, 14, 26, 3, "#5a5650");
+    for (const [y0, sag] of [[16, 8], [22, 9]]) for (let x = 28; x < SW; x++) px(b, x, y0 + Math.round(sag * Math.sin(((x - 28) / 300) * Math.PI)), "#3a3834");
+    rect(b, 12, 40, 10, 44, "#fbf8f4");
+    rect(b, 28, 56, 10, 34, "#fbf8f4");
+    [0x7530, 0x4ee3].forEach((code, i) => { // 田代
+      const k = kanjiGlyph(cp(code), 8, "#22252c");
+      b.drawImage(k.c, 17 - Math.round(k.w / 2), 44 + i * 12);
+    });
+    const rent = kanjiGlyph(cp(0x8cb8), 8, "#c8323c"); // 貸
+    b.drawImage(rent.c, 33 - Math.round(rent.w / 2), 60);
+    // the tram's track
+    rect(b, 0, 146, SW, 6, "#6a645e");
+    rect(b, 0, 146, SW, 1, "#a8a29a");
+    nightTint(back, s, 0.5);
+
+    const front = layer(), f = front.getContext("2d");
+    // a white guardrail along the track
+    rect(f, 0, 138, 210, 3, "#eef0f2");
+    rect(f, 0, 143, 210, 2, "#d0d4d8");
+    for (let x = 4; x < 210; x += 22) rect(f, x, 138, 3, 18, "#c8ccd2");
+    // the big tree
+    rect(f, 198, 70, 10, 100, "#4a3a2c");
+    rect(f, 200, 70, 2, 100, "#5e4a38");
+    for (const [x, y, r, c] of [
+      [150, 30, 30, "#2f6a3c"], [200, 12, 34, "#2f6a3c"], [250, 34, 30, "#2f6a3c"], [176, 62, 28, "#2a5e36"], [230, 70, 26, "#2a5e36"],
+      [160, 22, 18, "#3f8a4a"], [206, 2, 20, "#3f8a4a"], [244, 22, 16, "#3f8a4a"], [186, 48, 14, "#4e9c58"], [222, 40, 12, "#4e9c58"],
+    ]) disc(f, x, y, r, c, Math.round(r * 0.8));
+    for (let i = 0; i < 70; i++) px(f, 130 + Math.floor(hash(i) * 150), Math.floor(hash(i + 50) * 90), "#6cba6a");
+    // the old shop on the right: planks, eaves, posters, an air conditioner
+    rect(f, 252, 26, 68, 150, "#4a3a30");
+    for (let x = 254; x < 320; x += 5) rect(f, x, 30, 1, 146, "#3e3028");
+    rect(f, 246, 24, 74, 6, "#2e2a30");
+    rect(f, 262, 40, 22, 34, "#fbf8f4");
+    rect(f, 263, 41, 20, 10, "#c8323c");
+    text(f, "MART", 273 - Math.floor(textWidth("MART") / 2), 44, "#ffffff");
+    for (const [x, y, c] of [[290, 50, "#ffd84a"], [292, 86, "#9fd2ff"], [264, 90, "#f392b2"]]) {
+      rect(f, x, y, 18, 24, "#fbf8f4");
+      rect(f, x + 2, y + 2, 14, 12, c);
+      rect(f, x + 3, y + 16, 12, 1, "#8a8494");
+      rect(f, x + 3, y + 19, 9, 1, "#8a8494");
+    }
+    rect(f, 290, 150, 26, 20, "#d0d2d6");
+    for (let y = 153; y < 168; y += 3) rect(f, 292, y, 22, 1, "#a8aab0");
+    // the temple marker stone: 狐坂寺, with an arrow
+    rect(f, 214, 104, 16, 70, "#e8e6e0");
+    rect(f, 214, 104, 16, 2, "#f6f4f0");
+    rect(f, 228, 106, 2, 68, "#c8c6c0");
+    [0x72d0, 0x5742, 0x5bfa].forEach((code, i) => {
+      const k = kanjiGlyph(cp(code), 10, "#22252c");
+      f.drawImage(k.c, 222 - Math.round(k.w / 2), 110 + i * 14);
+    });
+    rect(f, 216, 154, 12, 1, "#c8323c");
+    paint(f, ["..o", "ooo", "..o"], 226, 153, { o: "#c8323c" });
+    // shrubs, grass and the lane with a puddle
+    for (const [x, y, r] of [[240, 166, 14], [262, 170, 12], [6, 168, 12], [44, 172, 10], [312, 166, 10]]) disc(f, x, y, r, "#356e40", Math.round(r * 0.7));
+    rect(f, 0, 172, SW, 28, "#6d6a70");
+    rect(f, 0, 172, SW, 1, "#8a8690");
+    for (let x = 0; x < SW; x += 7) rect(f, x, 170, 1, 3, "#4e9c58");
+    disc(f, 70, 190, 22, mix(s.bottom, "#6d6a70", 0.35), 3);
+    // a bus-stop bench
+    bench(f, 100, 178, 56);
+    rect(f, 100, 178, 56, 3, "#9a6a46");
+    rect(f, 100, 178, 56, 1, "#b88a60");
+    for (const x of [104, 150]) rect(f, x, 181, 2, 9, "#4a4450");
+    rect(f, 96, 150, 2, 40, "#8e939e");
+    disc(f, 97, 148, 5, "#2e6ad8");
+    nightTint(front, s, 0.5);
+    return [sky, back, front];
+  }
+
+  // A pastel tram rolling along now and then, behind the tree and the rail.
+  function tram(ctx, tf, s) {
+    const x = Math.round(((tf * 1.6) % 800) - 120);
+    if (x > SW) return;
+    const night = s.dark > 0.3;
+    rect(ctx, x, 104, 96, 42, "#f4d6e0");
+    rect(ctx, x, 128, 96, 18, "#bfe3c4");
+    rect(ctx, x, 104, 96, 2, "#fbeef2");
+    for (let k = 14; k < 92; k += 13) rect(ctx, x + k, 112, 9, 12, night ? "#ffe9a8" : "#3a4a5a");
+    rect(ctx, x + 88, 110, 8, 16, night ? "#ffe9a8" : "#5a6a7a");
+    rect(ctx, x + 2, 110, 8, 30, "#9fd6a8");
+    rect(ctx, x + 3, 112, 6, 12, night ? "#ffe9a8" : "#3a4a5a");
+    rect(ctx, x + 40, 98, 16, 6, "#5d6066");
+    rect(ctx, x + 47, 84, 1, 14, "#3a3834");
+    rect(ctx, x + 94, 134, 2, 2, night ? "#fff6c0" : "#f4e7a0");
+    text(ctx, "1203", x + 60, 132, "#3a4a5a");
+  }
+
+  // Warm windows in the houses and the shop once it's dark.
+  function inakaLights(ctx, t, s) {
+    if (s.dark <= 0.3) return;
+    for (const h of HOUSES) {
+      for (const [wx, wy, ww, wh] of houseWindows(h)) {
+        if (hash(wx + wy) < 0.35) continue;
+        rect(ctx, wx, wy, ww, wh, "#ffd98a");
+        for (let k = wx + 3; k < wx + ww; k += 4) rect(ctx, k, wy, 1, wh, "#c9a060");
+        rect(ctx, wx, wy + Math.floor(wh / 2), ww, 1, "#c9a060");
+      }
+    }
+    ctx.globalAlpha = 0.5;
+    rect(ctx, 262, 40, 22, 34, "#ffe9b0");
+    ctx.globalAlpha = 1;
+  }
+
   // Off-screen layer the size of the scene.
   function layer() {
     const c = document.createElement("canvas");
@@ -1543,9 +1874,13 @@ window.koritsuScene = (() => {
   // standing, where she walks in from, what she holds]
   const PLACES = [
     { key: "lake", kanji: cp(0x6e56), name: "LAKE", x: 172, seat: DOCK_TOP, feet: DOCK_TOP, from: 112, hold: "rod" },
+    { key: "inaka", kanji: cp(0x7530, 0x820e), name: "INAKA", x: 128, seat: 178, feet: 190, from: 66, hold: "book" },
     { key: "fuji", kanji: cp(0x5bcc, 0x58eb), name: "FUJI", x: 225, seat: 178, feet: 190, from: 168, hold: "book" },
     { key: "tokyo", kanji: cp(0x6771, 0x4eac), name: "TOKYO", x: 150, seat: 116, feet: 130, from: 88, hold: "book" },
+    { key: "akiba", kanji: cp(0x79cb, 0x8449, 0x539f), name: "AKIBA", x: 160, seat: 180, feet: 190, from: 100, hold: "book" },
   ];
+  // Scenes drawn for the whole 320×200 frame (the rest sit at its bottom).
+  const FULL = new Set(["fuji", "akiba", "inaka"]);
   const TRAVEL = 10 * 60000, WALK_IN = 5000;
 
   // Where she is and where she's headed, top left while she travels.
@@ -1612,6 +1947,7 @@ window.koritsuScene = (() => {
 
   // One frame of an extra animation, feet at (cx, feetY).
   function drawAnim(ctx, f, name, i, cx, feetY, faceRight) {
+    head = [cx, feetY - anims[name].ground + 6];
     const img = f.anims[name]?.[i];
     if (!img) return;
     ctx.save();
@@ -1621,7 +1957,9 @@ window.koritsuScene = (() => {
     ctx.restore();
   }
 
+  let head = [160, 80]; // top of her head in scene coordinates, for the thought bubble
   function drawFacing(ctx, img, cx, feetY, faceRight) {
+    head = [cx, feetY - 58];
     if (!img) return;
     ctx.save();
     ctx.translate(Math.round(cx), Math.round(feetY - 61));
@@ -1635,13 +1973,14 @@ window.koritsuScene = (() => {
   function sitting(ctx, t, f, hold, cx = 172, seat = DOCK_TOP) {
     if (!f.sit) return;
     const top = seat + 3 - HEM;
+    head = [cx, top + 4];
     const sx = (x) => cx + FW / 2 - x, sy = (y) => top + y;
     // legs first so the hakama hem overlaps them; each swings opposite the other
     const SWING = [0, 1, 2, 1, 0, -1, -2, -1];
     LEGS.forEach(([x, w], i) => {
       const leg = f.legs[i];
       if (!leg) return;
-      const sw = SWING[(Math.floor(t / 2) + i * 4) % 8];
+      const sw = hold === "rod" ? SWING[(Math.floor(t / 2) + i * 4) % 8] : 0;
       ctx.save();
       ctx.translate(sx(x) + 1, sy(HEM + 1));
       ctx.scale(-1, 1);
@@ -1728,6 +2067,7 @@ window.koritsuScene = (() => {
   // Asleep in bed: head and ears upright on the pillow, peeking over the blanket. (Turning the
   // whole sprite on its side made the head unreadable at this size.)
   function lying(ctx, f) {
+    head = [124, 64];
     const img = f.shut;
     if (!img) return;
     ctx.save();
@@ -1794,6 +2134,8 @@ window.koritsuScene = (() => {
         : scene.startsWith("station") ? stationLayers(s, +scene.split("-")[1])
         : scene === "fuji" ? fujiLayers(s)
         : scene === "tokyo" ? tokyoLayers(s)
+        : scene === "akiba" ? akibaLayers(s)
+        : scene === "inaka" ? inakaLayers(s)
         : lakeLayers(s);
       bg.key = key;
     }
@@ -1805,7 +2147,7 @@ window.koritsuScene = (() => {
   let shownScene = "", sceneAt = 0; // for the fade whenever the scene changes
   const idx = (i) => ((i % ROUTE.length) + ROUTE.length) % ROUTE.length;
 
-  function draw(canvas) {
+  function drawScene(canvas) {
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, SW, SH);
@@ -1835,14 +2177,14 @@ window.koritsuScene = (() => {
     if (travelling) lastPlace = placeI;
     const spot = PLACES[placeI];
     const scene = place === "wasted" ? (p < WAIT ? `station-${idx(stop)}` : "train") : place === "break" ? "bedroom" : spot.key;
-    const city = scene === "fuji" || scene === "tokyo";
+    const city = scene === "fuji" || scene === "tokyo" || scene === "akiba" || scene === "inaka";
     const indoors = scene === "bedroom", station = scene.startsWith("station");
     // Commuting, she steps off, waits and boards; kept at the station she just waits on the bench.
     const where = riding && station ? (commute === "cycle" ? onPlatform(p) : { sit: true }) : null;
     const napAnim = state.mood === "break" && !!f.anims["to-bed"];
     const outfit = state.character.outfit || "#e1262b";
     const breath = state.mood === "break" ? Math.floor(t / 8) % 2 : 0;
-    const oy = scene === "fuji" ? 0 : OY;
+    const oy = FULL.has(scene) ? 0 : OY;
     ctx.save();
     ctx.translate(0, oy);
 
@@ -1877,12 +2219,21 @@ window.koritsuScene = (() => {
       ctx.drawImage(plat, 0, 0);
       if (!s.rain) petals(ctx, tf);
     } else if (city) {
-      const [skyLayer, land] = background(scene, s);
+      const [skyLayer, land, front] = background(scene, s);
       ctx.drawImage(skyLayer, 0, 0);
       extendTop(ctx, skyLayer, oy, s, true);
       clouds(ctx, tf, s);
       ctx.drawImage(land, 0, 0);
-      (scene === "fuji" ? fujiLights : tokyoLights)(ctx, t, s);
+      if (scene === "akiba") {
+        akibaBack(ctx, t, s);
+        viaductTrain(ctx, tf, s);
+        ctx.drawImage(front, 0, 0);
+        akibaFront(ctx, t, tf, s);
+      } else if (scene === "inaka") {
+        tram(ctx, tf, s);
+        ctx.drawImage(front, 0, 0);
+        inakaLights(ctx, t, s);
+      } else (scene === "fuji" ? fujiLights : tokyoLights)(ctx, t, s);
     } else {
       const [skyLayer, land] = background(scene, s);
       ctx.drawImage(skyLayer, 0, 0);
@@ -1939,10 +2290,18 @@ window.koritsuScene = (() => {
     }
     if (state.mood === "break" && (zz || !napAnim)) zzz(ctx, t, ...(zz || [148, 62]));
     ctx.restore();
+    // where her head is, for the thought bubble laid over the canvas
+    const hx = Math.round(head[0]), hy = Math.round(head[1] + oy), wrap = canvas.parentElement;
+    if (wrap && (wrap.dataset.hx !== `${hx}` || wrap.dataset.hy !== `${hy}`)) {
+      wrap.dataset.hx = hx;
+      wrap.dataset.hy = hy;
+      wrap.style.setProperty("--hx", hx);
+      wrap.style.setProperty("--hy", hy);
+    }
 
     // Weather falls through the whole frame, splashing on the ground of each place.
     if (!indoors && scene !== "train") {
-      const ground = scene === "fuji" ? PAVE : scene === "tokyo" ? 126 + oy : station ? PLATFORM + oy : HORIZON + 4 + oy;
+      const ground = { fuji: PAVE, akiba: 176, inaka: 172, tokyo: 126 + oy }[scene] ?? (station ? PLATFORM + oy : HORIZON + 4 + oy);
       if (rain) rainfall(ctx, tf, s, ground);
       if (snow) snowfall(ctx, tf, s);
     }
@@ -2018,8 +2377,20 @@ window.koritsuScene = (() => {
     }
   }
 
-  function redrawAll() {
-    for (const c of canvases.values()) draw(c);
+  // Each canvas (the Track scene, the Settings preview) keeps its own state and timeline; draw()
+  // swaps one in, draws, and swaps it back out.
+  const views = new Map();
+  function view(id) {
+    if (!views.has(id)) {
+      views.set(id, { state: { ...state }, moodAt: clock, lastStation: 0, routeStart: 0, lastPlace: 0, shownScene: "", sceneAt: 0 });
+    }
+    return views.get(id);
+  }
+  function draw(canvas) {
+    const v = view(canvas.id);
+    ({ state, moodAt, lastStation, routeStart, lastPlace, shownScene, sceneAt } = v);
+    drawScene(canvas);
+    Object.assign(v, { state, moodAt, lastStation, routeStart, lastPlace, shownScene, sceneAt });
   }
 
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
@@ -2028,7 +2399,8 @@ window.koritsuScene = (() => {
     const now = performance.now();
     // Hidden in the tray, or (unless set to animate in the background) another window has
     // focus: hold the frame and the clock, so nothing is missed and no CPU is spent.
-    const paused = document.hidden || (!state.background && !document.hasFocus());
+    const background = [...views.values()].some((v) => v.state.background);
+    const paused = document.hidden || (!background && !document.hasFocus());
     if (!reduced.matches && !paused) clock += now - last; // reduced motion: the scene holds still
     last = now;
     if (paused) return;
@@ -2052,13 +2424,15 @@ window.koritsuScene = (() => {
       canvases.set(id, canvas);
       draw(canvas);
     },
-    update(next) {
-      if (next.mood && next.mood !== state.mood) {
-        moodAt = clock; // restart the transition animations
-        if (next.mood === "wasted") routeStart = lastStation; // the commute carries on from where she got off
+    update(next, id) {
+      const v = view(id);
+      if (next.mood && next.mood !== v.state.mood) {
+        v.moodAt = clock; // restart the transition animations
+        if (next.mood === "wasted") v.routeStart = v.lastStation; // the commute carries on from where she got off
       }
-      state = { ...state, ...next, character: next.character ?? state.character };
-      redrawAll();
+      v.state = { ...v.state, ...next, character: next.character ?? v.state.character };
+      const canvas = canvases.get(id);
+      if (canvas) draw(canvas);
     },
   };
 })();
