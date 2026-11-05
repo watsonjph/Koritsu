@@ -1,25 +1,27 @@
-# Koritsu 効率
+<p align="center"><img src="docs/logo.png" alt="Koritsu's fox logo" width="128"></p>
 
-A tiny always-on-top widget that counts the time you waste and the time you spend well.
+<h1 align="center">Koritsu 効率</h1>
 
-<p align="center"><img src="docs/screenshot.png" alt="Koritsu's Track tab: a fox girl strolling on a dock at night, a timer, and today's productive, wasted and break totals" width="360"></p>
+<p align="center">A tiny always-on-top widget that counts the time you waste and the time you spend well.</p>
 
 ## Download
 
-Grab the latest `Koritsu-…-windows-x64.zip` from [Releases](https://github.com/watsonjph/Koritsu/releases), unzip it and run `Koritsu.exe`. No installer.
+Get **`Koritsu-Setup-….exe`** from [Releases](https://github.com/watsonjph/Koritsu/releases) and run it.
 
+- Installs just for you (no admin prompt) and adds Koritsu to the Start Menu and **Apps & features**.
+- Tick **Start Koritsu when Windows starts** during setup, or turn it on later in Settings.
 - Needs the Microsoft WebView2 runtime (built into Windows 11 and up-to-date Windows 10).
-- The exe isn't code-signed, so SmartScreen may say "unknown publisher": click **More info → Run anyway**.
-- Put the exe where you'll keep it before turning on **Start with Windows**.
+- The installer isn't code-signed, so SmartScreen may say "unknown publisher": click **More info → Run anyway**.
+- Uninstalling keeps your data (`%APPDATA%\koritsu`).
 
 ## Features
 
-- **Track** productive, wasted and break time with one click and name what you're doing.
-- **Companion**: a pixel-art character who fishes or reads while you work, doomscrolls in bed while you don't, and naps on breaks. The sky follows your clock, and sometimes it rains.
-- **Stats** for day, week, month and year: charts, a breakdown by activity, and highlights that compare with the previous period.
+- **Track** productive, wasted and break time with one click, and name what you're doing.
+- **Companion**: Senko eats, strolls and hops on the dock while you're idle, fishes or reads while you work, doomscrolls in bed while you don't, and curls up for a nap on breaks. The pixel-art lake and bedroom follow your clock (or a fixed time of day), with rain.
+- **Stats** for day, week, month and year: a timeline, a breakdown by activity, and highlights that compare with the previous period.
 - **Pomodoro** with adjustable lengths and rounds, auto-start, tick sounds and end-of-phase alerts.
 - **Todo list** with timed reminders.
-- **Make it yours**: themes and custom colours, character colours, switch sounds, English and 日本語.
+- **Make it yours**: themes with a custom accent that the whole palette follows, character colours, switch sounds, window size, English and 日本語.
 - **Stays out of the way**: frameless, pin on top, snaps to screen corners, hides to the tray, exports to CSV.
 
 ## Keybinds
@@ -45,7 +47,11 @@ cargo run --release
 cargo test
 ```
 
-Your data is a single JSON file at `%APPDATA%\koritsu\Koritsu\data\koritsu.json`; Settings shows the path and can export it as CSV.
+To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), build the release exe, then compile `installer/koritsu.iss`; it writes `dist/Koritsu-Setup-<version>.exe`.
+
+```bash
+ISCC installer/koritsu.iss
+```
 
 ## License
 

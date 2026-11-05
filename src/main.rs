@@ -77,10 +77,29 @@ pub fn notify(store: Signal<Store>, body: String) {
     }
     // Showing a toast can block for a moment on Windows; keep it off the UI thread.
     std::thread::spawn(move || {
-        if let Err(e) = notify_rust::Notification::new().summary("Koritsu 効率").body(&body).show() {
+        let mut toast = notify_rust::Notification::new();
+        toast.summary("Koritsu 効率").body(&body);
+        #[cfg(windows)]
+        if installed() {
+            // The installer's Start Menu shortcut registers this ID, so toasts show as Koritsu.
+            // Without that shortcut Windows drops toasts for an unknown ID, so portable copies
+            // keep the default.
+            toast.app_id(APP_ID);
+        }
+        if let Err(e) = toast.show() {
             eprintln!("koritsu: notification failed: {e}");
         }
     });
+}
+
+/// Windows AppUserModelID; must match `AppUserModelID` in installer/koritsu.iss.
+#[cfg(windows)]
+const APP_ID: &str = "dev.koritsu.Koritsu";
+
+/// Installed by the setup wizard (its uninstaller sits next to the exe), not run portably.
+#[cfg(windows)]
+fn installed() -> bool {
+    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("unins000.exe").exists())).unwrap_or(false)
 }
 
 pub fn set_pinned(store: Signal<Store>, on: bool) {
