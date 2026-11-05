@@ -85,8 +85,9 @@ pub struct Settings {
     pub snap: bool,
     pub theme: Theme,
     pub lang: Lang,
-    /// Last window position and inner size, in physical pixels.
+    /// Last window position, in physical pixels (its size comes from `window_size`).
     pub window: Option<Geom>,
+    pub window_size: WindowSize,
     pub sound_profile: SoundProfile,
     /// Per-theme colour overrides (`#rrggbb`); anything missing follows the theme.
     pub custom: BTreeMap<Theme, BTreeMap<Token, String>>,
@@ -130,19 +131,31 @@ impl Token {
 
 impl Settings {
     /// The colour in effect for `token` in the current theme.
-    pub fn color(&self, token: Token) -> &str {
+    pub fn color(&self, token: Token) -> String {
         self.color_for(self.theme, token)
     }
 
-    /// `theme`'s override for `token` if valid, else that theme's default.
-    pub fn color_for(&self, theme: Theme, token: Token) -> &str {
-        self.custom
+    /// `theme`'s override for `token` if valid, else its default. Accent, background and text
+    /// come from the theme; productive, break and wasted derive from those three, so the
+    /// whole palette moves with the accent: productive is the accent, break a lighter tint of
+    /// it, wasted a neutral grey.
+    pub fn color_for(&self, theme: Theme, token: Token) -> String {
+        let custom = self
+            .custom
             .get(&theme)
             .and_then(|m| m.get(&token))
-            .map(String::as_str)
             // Validated because the value is pasted into inline CSS.
-            .filter(|c| is_hex_color(c))
-            .unwrap_or(theme.color(token))
+            .filter(|c| is_hex_color(c));
+        if let Some(c) = custom {
+            return c.clone();
+        }
+        let base = |t: Token| self.color_for(theme, t);
+        match token {
+            Token::Accent | Token::Bg | Token::Text => theme.color(token).to_string(),
+            Token::Positive => base(Token::Accent),
+            Token::Break => mix_hex(&base(Token::Accent), &base(Token::Text), 0.45),
+            Token::Negative => mix_hex(&base(Token::Text), &base(Token::Bg), 0.5),
+        }
     }
 
     pub fn is_custom(&self, token: Token) -> bool {
@@ -177,6 +190,13 @@ impl Settings {
     }
 }
 
+/// Linear blend of two `#rrggbb` colours: `t` = 0 gives `a`, 1 gives `b`.
+pub fn mix_hex(a: &str, b: &str, t: f64) -> String {
+    let ch = |c: &str, i: usize| f64::from(u8::from_str_radix(&c[1 + 2 * i..3 + 2 * i], 16).unwrap_or(0));
+    let v: Vec<String> = (0..3).map(|i| format!("{:02x}", (ch(a, i) + (ch(b, i) - ch(a, i)) * t).round() as u8)).collect();
+    format!("#{}", v.concat())
+}
+
 /// `#abc`, `abc`, `#aabbcc` or `aabbcc` → `#aabbcc`.
 pub fn parse_hex(input: &str) -> Option<String> {
     let h = input.trim().trim_start_matches('#');
@@ -208,11 +228,12 @@ pub struct Character {
     /// What they do while you're productive.
     pub scene: ProductiveScene,
     pub weather: Weather,
+    pub sky: SkyMode,
 }
 
 impl Default for Character {
     fn default() -> Self {
-        Self { show: true, hair: None, skin: None, eyes: None, outfit: None, scene: ProductiveScene::Fishing, weather: Weather::Auto }
+        Self { show: true, hair: None, skin: None, eyes: None, outfit: None, scene: ProductiveScene::Fishing, weather: Weather::Auto, sky: SkyMode::Auto }
     }
 }
 
@@ -241,6 +262,51 @@ impl Character {
             if field.as_deref() == Some(old) {
                 *field = None;
             }
+        }
+    }
+}
+
+/// The window's fixed size; it can't be dragged to resize.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum WindowSize {
+    #[default]
+    Compact,
+    Medium,
+    Large,
+}
+
+impl WindowSize {
+    pub const ALL: [WindowSize; 3] = [WindowSize::Compact, WindowSize::Medium, WindowSize::Large];
+
+    /// Inner size in logical pixels.
+    pub fn logical(self) -> (f64, f64) {
+        match self {
+            WindowSize::Compact => (360.0, 560.0),
+            WindowSize::Medium => (400.0, 640.0),
+            WindowSize::Large => (440.0, 720.0),
+        }
+    }
+}
+
+/// The scene's time of day: follow the clock, or stay at one time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum SkyMode {
+    #[default]
+    Auto,
+    Day,
+    Sunset,
+    Night,
+}
+
+impl SkyMode {
+    pub const ALL: [SkyMode; 4] = [SkyMode::Auto, SkyMode::Day, SkyMode::Sunset, SkyMode::Night];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            SkyMode::Auto => "auto",
+            SkyMode::Day => "day",
+            SkyMode::Sunset => "sunset",
+            SkyMode::Night => "night",
         }
     }
 }
@@ -400,24 +466,21 @@ impl Theme {
         }
     }
 
-    /// Theme defaults. Accent/bg/text from kopuz's themes; productive/wasted/break ink from
-    /// each theme's own palette, every trio checked for colour-blind separation.
+    /// Theme defaults for accent, background and text, from kopuz's themes. The kind colours
+    /// derive from these (see `Settings::color_for`).
     pub fn color(self, token: Token) -> &'static str {
-        let [accent, bg, text, positive, negative, rest] = match self {
-            Theme::Copper => ["#d9842f", "#000000", "#ffffff", "#2dd4bf", "#f87171", "#a78bfa"],
-            Theme::Gruvbox => ["#458588", "#282828", "#ebdbb2", "#8ec07c", "#fb4934", "#fabd2f"],
-            Theme::Dracula => ["#bd93f9", "#282a36", "#f8f8f2", "#50fa7b", "#ff79c6", "#8be9fd"],
-            Theme::Nord => ["#88c0d0", "#2e3440", "#d8dee9", "#88c0d0", "#bf616a", "#ebcb8b"],
-            Theme::Catppuccin => ["#89b4fa", "#1e1e2e", "#cdd6f4", "#94e2d5", "#f38ba8", "#89b4fa"],
-            Theme::RosePine => ["#c4a7e7", "#191724", "#e0def4", "#9ccfd8", "#eb6f92", "#f6c177"],
+        let [accent, bg, text] = match self {
+            Theme::Copper => ["#d9842f", "#000000", "#ffffff"],
+            Theme::Gruvbox => ["#458588", "#282828", "#ebdbb2"],
+            Theme::Dracula => ["#bd93f9", "#282a36", "#f8f8f2"],
+            Theme::Nord => ["#88c0d0", "#2e3440", "#d8dee9"],
+            Theme::Catppuccin => ["#89b4fa", "#1e1e2e", "#cdd6f4"],
+            Theme::RosePine => ["#c4a7e7", "#191724", "#e0def4"],
         };
         match token {
-            Token::Accent => accent,
             Token::Bg => bg,
             Token::Text => text,
-            Token::Positive => positive,
-            Token::Negative => negative,
-            Token::Break => rest,
+            _ => accent,
         }
     }
 }
@@ -465,6 +528,7 @@ impl Default for Settings {
             sounds: true,
             volume: 60,
             snap: true,
+            window_size: WindowSize::Compact,
             theme: Theme::Copper,
             lang: Lang::En,
             window: None,
@@ -825,7 +889,7 @@ mod tests {
     #[test]
     fn colors_are_per_theme_and_validated() {
         let mut s = Settings { theme: Theme::Nord, ..Settings::default() };
-        assert_eq!(s.color(Token::Negative), "#bf616a");
+        assert_eq!(s.color(Token::Negative), "#838995"); // halfway from text to background
         s.set_color(Token::Accent, Some("#ABCDEF".into()));
         s.set_color(Token::Bg, Some("red; background: url(x)".into())); // rejected
         assert_eq!(s.color(Token::Accent), "#abcdef");
@@ -883,6 +947,18 @@ mod tests {
         s.migrate();
         assert_eq!(s.character.hair, None);
         assert_eq!(s.character.skin.as_deref(), Some("#123456"));
+    }
+
+    #[test]
+    fn kind_colours_follow_the_accent() {
+        let mut s = Settings::default(); // Copper: accent #d9842f on black, white text
+        assert_eq!(s.color(Token::Positive), "#d9842f");
+        assert_eq!(s.color(Token::Negative), "#808080");
+        s.set_color(Token::Accent, Some("#8a6be1".into()));
+        assert_eq!(s.color(Token::Positive), "#8a6be1"); // moves with a custom accent
+        assert_eq!(s.color(Token::Break), mix_hex("#8a6be1", "#ffffff", 0.45));
+        s.set_color(Token::Positive, Some("#00ff00".into()));
+        assert_eq!(s.color(Token::Positive), "#00ff00"); // an explicit override still wins
     }
 
     #[test]

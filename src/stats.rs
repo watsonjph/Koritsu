@@ -188,43 +188,45 @@ pub fn StatsTab() -> Element {
                     }
                 }
             }
-            div { class: "mini-stats",
-                div { class: "mini wasted",
-                    span { class: "mini-num", "{fmt_dur(wasted)}" }
-                    span { class: "caption", "{t.wasted} · {this}" }
+            // Overview: the three totals, then the one-line summary.
+            div { class: "card overview",
+                div { class: "mini-stats",
+                    for (kind, secs) in [(Kind::Productive, productive), (Kind::Wasted, wasted), (Kind::Break, rest)] {
+                        div { key: "{kind.class()}", class: "mini {kind.class()}",
+                            span { class: "mini-num", "{fmt_dur(secs)}" }
+                            span { class: "caption", "{kind_label(kind)}" }
+                        }
+                    }
                 }
-                div { class: "mini productive",
-                    span { class: "mini-num", "{fmt_dur(productive)}" }
-                    span { class: "caption", "{t.productive} · {this}" }
-                }
-                if rest > 0 {
-                    div { class: "mini break",
-                        span { class: "mini-num", "{fmt_dur(rest)}" }
-                        span { class: "caption", "{t.break_time} · {this}" }
+                p { class: "nudge", "{nudge}" }
+            }
+            crate::summary::Highlights { period: p }
+            div { class: "block",
+                span { class: "block-title", "{t.timeline} · {this}" }
+                div { class: "card", Chart { period: p } }
+            }
+            if !(wasted_by.is_empty() && productive_by.is_empty()) {
+                div { class: "block",
+                    span { class: "block-title", "{t.by_activity}" }
+                    div { class: "card breakdown",
+                        Breakdown { kind: Kind::Productive, rows: productive_by, total: productive }
+                        Breakdown { kind: Kind::Wasted, rows: wasted_by, total: wasted }
                     }
                 }
             }
-            p { class: "nudge", "{nudge}" }
-            crate::summary::Highlights { period: p }
-            Chart { period: p }
-            if !(wasted_by.is_empty() && productive_by.is_empty()) {
-                div { class: "breakdown",
-                    span { class: "caption", "{t.by_activity}" }
-                    Breakdown { kind: Kind::Wasted, rows: wasted_by, total: wasted }
-                    Breakdown { kind: Kind::Productive, rows: productive_by, total: productive }
+            div { class: "block",
+                div { class: "block-title",
+                    span { "{t.entries} · {this}" }
+                    button { class: "btn small", onclick: move |_| draft.set(Some(Draft::new())),
+                        Icon { d: PLUS }
+                        "{t.add_time}"
+                    }
+                }
+                if entries.is_empty() {
+                    div { class: "empty", {fill(t.no_entries, &[("p", this)])} }
                 }
             }
-            div { class: "row between",
-                span { class: "caption", "{t.entries} · {this}" }
-                button { class: "btn small", onclick: move |_| draft.set(Some(Draft::new())),
-                    Icon { d: PLUS }
-                    "{t.add_time}"
-                }
-            }
-            if entries.is_empty() {
-                div { class: "empty", {fill(t.no_entries, &[("p", this)])} }
-            }
-            ul { class: "list",
+            ul { class: "list entries",
                 for e in entries {
                     li { key: "{e.id}", class: "item",
                         span { class: "dot-kind {e.kind.class()}" }

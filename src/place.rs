@@ -4,7 +4,7 @@
 
 use crate::store::Geom;
 use dioxus::desktop::DesktopContext;
-use dioxus::desktop::tao::dpi::{PhysicalPosition, PhysicalSize};
+use dioxus::desktop::tao::dpi::PhysicalPosition;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Rect {
@@ -68,6 +68,12 @@ pub fn corner(win: Rect, area: Rect, gap: i32, c: Corner) -> (i32, i32) {
     }
 }
 
+/// Top-left that keeps all of `win` inside `area` (with `gap` to spare), moving it as little as possible.
+pub fn inside(win: Rect, area: Rect, gap: i32) -> (i32, i32) {
+    let axis = |pos: i32, len: i32, start: i32, span: i32| pos.min(start + span - gap - len).max(start + gap);
+    (axis(win.x, win.w, area.x, area.w), axis(win.y, win.h, area.y, area.h))
+}
+
 fn overlaps(a: Rect, b: Rect) -> bool {
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 }
@@ -113,6 +119,17 @@ fn move_visible_to(w: &DesktopContext, (x, y): (i32, i32), offset: (i32, i32)) {
     w.set_outer_position(PhysicalPosition::new(x - offset.0, y - offset.1));
 }
 
+/// After a resize: pull back inside the screen if part of it ended up off the edge.
+pub fn keep_on_screen(w: &DesktopContext) -> bool {
+    let (Some((win, off)), Some(area)) = (visible(w), work_area(w)) else { return false };
+    let to = inside(win, area, px(w, GAP));
+    let moved = to != (win.x, win.y);
+    if moved {
+        move_visible_to(w, to, off);
+    }
+    moved
+}
+
 /// After a drag settles: pull to nearby edges. Returns true if it moved.
 pub fn snap_now(w: &DesktopContext) -> bool {
     let (Some((win, off)), Some(area)) = (visible(w), work_area(w)) else { return false };
@@ -136,6 +153,7 @@ pub fn geom(w: &DesktopContext) -> Option<Geom> {
 }
 
 /// Puts the window back where it was, or bottom-right on first run / if that monitor is gone.
+/// Only the position is restored; the size comes from the Window Size setting.
 pub fn restore(w: &DesktopContext, saved: Option<Geom>) {
     let on_screen = saved.filter(|g| {
         let r = Rect { x: g.x, y: g.y, w: g.w as i32, h: g.h as i32 };
@@ -146,10 +164,10 @@ pub fn restore(w: &DesktopContext, saved: Option<Geom>) {
     });
     match on_screen {
         Some(g) => {
-            w.set_inner_size(PhysicalSize::new(g.w, g.h));
             if let Some((_, off)) = visible(w) {
                 move_visible_to(w, (g.x, g.y), off);
             }
+            keep_on_screen(w);
         }
         None => to_corner(w, Corner::BottomRight),
     }
@@ -168,6 +186,14 @@ mod tests {
         assert_eq!(snap(win(25, 500), AREA, 10, 28), (10, 500)); // 30px from the bottom: outside the pull
         assert_eq!(snap(win(1540, 30), AREA, 10, 28), (1550, 10)); // right + top
         assert_eq!(snap(win(700, 200), AREA, 10, 28), (700, 200)); // middle: untouched
+    }
+
+    #[test]
+    fn inside_pulls_a_grown_window_back_on_screen() {
+        let win = Rect { x: 1550, y: 470, w: 440, h: 720 }; // was bottom-right at 360×560
+        assert_eq!(inside(win, AREA, 10), (1920 - 10 - 440, 1040 - 10 - 720)); // moved up and left, still in the corner
+        let fits = Rect { x: 700, y: 200, w: 360, h: 560 };
+        assert_eq!(inside(fits, AREA, 10), (700, 200));
     }
 
     #[test]

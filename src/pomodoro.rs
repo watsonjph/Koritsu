@@ -260,7 +260,7 @@ fn TimerSettings() -> Element {
 
 #[component]
 pub fn Slider(label: &'static str, color: &'static str, value: u32, min: u32, max: u32, minutes: bool, oninput: EventHandler<u32>) -> Element {
-    let pct = 100.0 * f64::from(value - min) / f64::from(max - min);
+    let frac = f64::from(value - min) / f64::from(max - min);
     let shown = if minutes { format!("{value}:00") } else { value.to_string() };
     rsx! {
         div { class: "slider-row",
@@ -269,7 +269,7 @@ pub fn Slider(label: &'static str, color: &'static str, value: u32, min: u32, ma
             input {
                 r#type: "range",
                 class: "slider",
-                style: "--c: {color}; --pct: {pct}%",
+                style: "--c: {color}; --f: {frac}",
                 min: "{min}",
                 max: "{max}",
                 value: "{value}",

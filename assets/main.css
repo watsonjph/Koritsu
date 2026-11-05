@@ -2,10 +2,6 @@
    Rust (store::Theme::color + per-theme overrides). Everything else derives from them, so a
    custom light background still gets readable surfaces. */
 :root {
-  --focus: #ef4444;
-  --short: #22c55e;
-  --long: #06b6d4;
-  --rounds: #94a3b8;
   --slate: #64748b;
   --ease: cubic-bezier(.2, .8, .2, 1);
   --mono: "JetBrains Mono", "Yu Gothic UI", "Meiryo", "Segoe UI", sans-serif;
@@ -42,6 +38,11 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
   --break-mark: color-mix(in srgb, var(--break) 80%, #000);
   --wasted-mark: color-mix(in srgb, var(--wasted) 85%, #000);
   --mood: var(--accent-hi);
+  /* Pomodoro phases: shades of the accent, so the whole app reads as one palette */
+  --focus: var(--accent);
+  --short: color-mix(in srgb, var(--accent) 55%, var(--text));
+  --long: color-mix(in srgb, var(--accent) 30%, var(--text));
+  --rounds: color-mix(in srgb, var(--text) 45%, var(--bg));
   transition: --mood .8s var(--ease), background .3s, color .3s;
 }
 /* Registered so the colour itself can animate between idle / productive / wasted. */
@@ -51,7 +52,13 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .app.mood-break { --mood: var(--break); }
 /* Always reserve the scrollbar's space so content width never jumps when it appears. */
 .content { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
-.tab { padding: 14px 14px 24px 16px; display: flex; flex-direction: column; gap: 16px; animation: rise .24s var(--ease); }
+.tab { padding: 16px 14px 28px 18px; display: flex; flex-direction: column; gap: 22px; animation: rise .24s var(--ease); }
+
+/* Cards and titled blocks */
+.card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.block { display: flex; flex-direction: column; gap: 10px; }
+.block-title { display: flex; align-items: center; justify-content: space-between; min-height: 24px; padding: 0 2px; font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+.block-title .btn { text-transform: none; letter-spacing: 0; }
 .row { display: flex; align-items: center; }
 .row.center { justify-content: center; }
 .row.between { justify-content: space-between; }
@@ -131,11 +138,10 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .caption.faint { color: color-mix(in srgb, var(--text) 30%, transparent); }
 
 /* Plain day/period totals: a number and a caption, nothing else. */
-.today { display: flex; flex-direction: column; gap: 8px; }
-.mini-stats { display: flex; gap: 18px; padding: 0 2px; }
-.today .mini-stats { justify-content: space-between; }
-.mini { display: flex; flex-direction: column; gap: 2px; }
-.mini-num { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.today { display: flex; flex-direction: column; gap: 10px; }
+.mini-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 2px; }
+.mini { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mini-num { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .mini .caption::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
 .mini.productive { --c: var(--productive); }
 .mini.wasted { --c: var(--wasted); }
@@ -152,7 +158,9 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .hud-pill.wasted { color: var(--wasted); }
 .hud-pill.break { color: var(--break); }
 .hud-clock { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; text-transform: none; font-variant-numeric: tabular-nums; }
-.nudge { font-size: 12px; color: color-mix(in srgb, var(--text) 75%, transparent); }
+.nudge { font-size: 12px; line-height: 1.6; color: color-mix(in srgb, var(--text) 75%, transparent); }
+.overview .nudge { padding-top: 12px; border-top: 1px solid var(--border); }
+.overview .mini-num { font-size: 19px; }
 
 /* Track tab */
 .timer-face { text-align: center; padding: 2px 0 0; }
@@ -197,19 +205,21 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .timer-settings { display: flex; flex-direction: column; gap: 14px; padding: 4px 14px 12px; animation: rise .25s var(--ease); }
 .slider-row { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .slider-label { font-weight: 700; color: color-mix(in srgb, var(--text) 85%, transparent); }
-.slider { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 4px; outline: none; margin: 4px 0; background: linear-gradient(to right, var(--c) var(--pct), color-mix(in srgb, var(--text) 10%, transparent) var(--pct)); }
-.slider.mini { width: 120px; }
-.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--c); cursor: pointer; transition: box-shadow .15s, transform .15s var(--ease); }
-.slider:hover::-webkit-slider-thumb { box-shadow: 0 0 0 5px color-mix(in srgb, var(--c) 25%, transparent); }
-.slider:active::-webkit-slider-thumb { transform: scale(1.15); }
+.slider { -webkit-appearance: none; appearance: none; width: 100%; height: 16px; margin: 0; background: transparent; outline: none; cursor: pointer; --fill: calc(8px + (100% - 16px) * var(--f, 0)); }
+.slider.mini { width: 130px; }
+.slider::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--c) var(--fill), color-mix(in srgb, var(--text) 12%, transparent) var(--fill)); }
+.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 3px var(--bg); transition: box-shadow .15s, transform .15s var(--ease); }
+.slider:hover::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--bg), 0 0 0 7px color-mix(in srgb, var(--c) 25%, transparent); }
+.slider:active::-webkit-slider-thumb { transform: scale(1.12); }
+.slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--c); }
 
 /* Todo composer */
 .composer { display: flex; flex-direction: column; gap: 6px; }
 .time-input { flex: none; }
 
 /* Lists */
-.list { display: flex; flex-direction: column; gap: 4px; }
-.item { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; background: var(--surface); animation: rise .25s var(--ease); transition: background .15s; }
+.list { display: flex; flex-direction: column; gap: 6px; }
+.item { display: flex; align-items: center; gap: 10px; padding: 9px 8px 9px 12px; border-radius: 10px; background: var(--surface); animation: rise .25s var(--ease); transition: background .15s; }
 .item:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .item-text { font-size: 12px; overflow-wrap: anywhere; transition: color .25s; }
 .item.done .item-text { color: var(--muted); text-decoration: line-through; }
@@ -221,14 +231,14 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .dot-kind.break { background: var(--break); }
 
 /* Diverging chart: productive up, wasted down */
-.chart { display: flex; flex-direction: column; gap: 6px; }
+.chart { display: flex; flex-direction: column; gap: 10px; }
 .legend { display: flex; gap: 14px; font-size: 10px; color: var(--muted); }
 .legend > span { display: flex; align-items: center; gap: 5px; }
 .swatch { width: 8px; height: 8px; border-radius: 2px; }
 .swatch.productive { background: var(--productive-mark); }
 .swatch.wasted { background: var(--wasted-mark); }
 .swatch.break { background: var(--break-mark); }
-.plot { display: flex; gap: 2px; height: 110px; }
+.plot { display: flex; gap: 2px; height: 130px; }
 .col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; border-radius: 4px; transition: background .15s; }
 .col:hover { background: var(--surface); }
 .half { flex: 1; width: 100%; display: flex; justify-content: center; }
@@ -247,6 +257,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 
 /* Settings */
 .group { display: flex; flex-direction: column; gap: 6px; }
+.caption + .group, .caption + form, .caption + ul { margin-top: -12px; }
 .set-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-radius: 10px; background: var(--surface); text-align: left; font-size: 12px; transition: background .15s; }
 .set-row.toggle:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .knob { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--text) 45%, transparent); position: relative; transition: border-color .25s; }
@@ -277,8 +288,9 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .chip-x:hover { color: var(--text); }
 
 /* Breakdown by activity */
-.breakdown { display: flex; flex-direction: column; gap: 6px; }
-.share-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) 70px auto; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; font-size: 12px; animation: rise .25s var(--ease); }
+.breakdown { display: flex; flex-direction: column; gap: 4px; }
+.breakdown .list + .list { padding-top: 8px; border-top: 1px solid var(--border); }
+.share-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) 70px auto; align-items: center; gap: 10px; padding: 5px 2px; font-size: 12px; animation: rise .25s var(--ease); }
 .share-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .share-bar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .share-fill { display: block; height: 100%; border-radius: 3px; transition: width .45s var(--ease); }
@@ -291,8 +303,8 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .input.hex.bad { border-color: color-mix(in srgb, var(--wasted) 70%, transparent); }
 
 /* Highlights (Apple Health-style summary cards) */
-.highlights { display: flex; flex-direction: column; gap: 8px; }
-.hl-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); animation: rise .3s var(--ease) both; --c: var(--accent); }
+.highlights { gap: 10px; }
+.hl-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); animation: rise .3s var(--ease) both; --c: var(--accent); }
 .hl-card.productive { --c: var(--productive); }
 .hl-card.wasted { --c: var(--wasted); }
 .hl-card.break { --c: var(--break); }
