@@ -54,7 +54,7 @@ assets = [
 ]
 
 [package.metadata.generate-rpm.requires]
-webkit2gtk4.1 = "*"
+"webkit2gtk4.1" = "*" # quoted: a bare dotted key would be read as a nested table
 gtk3 = "*"
 libayatana-appindicator-gtk3 = "*"
 libxdo = "*"
