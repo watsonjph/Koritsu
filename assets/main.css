@@ -211,6 +211,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .overview .mini-num { font-size: 19px; }
 
 /* Track tab: the scene, one row of actions, a slim Pomodoro line, today's bar, a quote. */
+
 .track-tab { gap: 16px; }
 .timer-face { text-align: center; padding: 2px 0 0; }
 .timer-face .caption { justify-content: center; margin: 0 auto; }
@@ -251,7 +252,7 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .today-bar .wasted { background: var(--wasted); }
 .today-bar .break { background: var(--break); }
 
-.quote { text-align: left; padding: 0 2px; color: var(--muted); font-size: 12px; line-height: 1.6; animation: rise .35s var(--ease); transition: color .2s; }
+.quote { text-align: left; padding: 2px 0 2px 12px; border-left: 2px solid var(--mood); color: color-mix(in srgb, var(--text) 60%, transparent); font-size: 12px; line-height: 1.6; animation: rise .35s var(--ease); transition: color .2s; }
 .quote:hover { color: var(--text); }
 
 .timer-settings { display: flex; flex-direction: column; gap: 6px; }

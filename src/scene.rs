@@ -1,7 +1,7 @@
 //! Hosts the pixel-art canvas from `assets/scene.js` and keeps it in sync with what you're doing.
 
 use crate::pomodoro::{Phase, Pomo};
-use crate::store::{Kind, ProductiveScene, Store};
+use crate::store::{Kind, Store};
 use dioxus::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -35,9 +35,10 @@ pub fn Scene() -> Element {
             "mood": mood(&st, &pomo.read()),
             // where she idles: wherever the last thing you logged happened
             "last": st.entries.iter().max_by_key(|e| e.end).map(|e| e.kind.class()),
-            "productive": if st.settings.character.scene == ProductiveScene::Reading { "reading" } else { "fishing" },
             "weather": st.settings.character.weather.key(),
             "sky": st.settings.character.sky.key(),
+            "place": st.settings.character.productive_place.key(),
+            "commute": st.settings.character.wasted_place.key(),
             // pinned on top it stays in view, so it keeps moving
             "background": st.settings.character.animate_unfocused || st.settings.pinned,
             "character": st.settings.character.to_js(),

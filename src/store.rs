@@ -225,10 +225,11 @@ pub struct Character {
     pub eyes: Option<String>,
     /// The hakama and ties.
     pub outfit: Option<String>,
-    /// What they do while you're productive.
-    pub scene: ProductiveScene,
     pub weather: Weather,
     pub sky: SkyMode,
+    /// Where she goes while you're productive, and while you're wasting time.
+    pub productive_place: ProductivePlace,
+    pub wasted_place: WastedPlace,
     /// Keep animating while another window has focus; off pauses it, like a wallpaper engine.
     pub animate_unfocused: bool,
 }
@@ -241,9 +242,10 @@ impl Default for Character {
             skin: None,
             eyes: None,
             outfit: None,
-            scene: ProductiveScene::Fishing,
             weather: Weather::Auto,
             sky: SkyMode::Auto,
+            productive_place: ProductivePlace::Travel,
+            wasted_place: WastedPlace::Commute,
             animate_unfocused: false,
         }
     }
@@ -346,11 +348,48 @@ impl Weather {
     }
 }
 
+/// Productive scenery: travel between the places (a new one every ten minutes), or stay in one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub enum ProductiveScene {
+pub enum ProductivePlace {
     #[default]
-    Fishing,
-    Reading,
+    Travel,
+    Lake,
+    Fuji,
+    Tokyo,
+}
+
+impl ProductivePlace {
+    pub const ALL: [ProductivePlace; 4] = [ProductivePlace::Travel, ProductivePlace::Lake, ProductivePlace::Fuji, ProductivePlace::Tokyo];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            ProductivePlace::Travel => "cycle",
+            ProductivePlace::Lake => "lake",
+            ProductivePlace::Fuji => "fuji",
+            ProductivePlace::Tokyo => "tokyo",
+        }
+    }
+}
+
+/// Wasted-time scenery: the commute (platform, then train, then the next platform), or one of them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum WastedPlace {
+    #[default]
+    Commute,
+    Station,
+    Train,
+}
+
+impl WastedPlace {
+    pub const ALL: [WastedPlace; 3] = [WastedPlace::Commute, WastedPlace::Station, WastedPlace::Train];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            WastedPlace::Commute => "cycle",
+            WastedPlace::Station => "station",
+            WastedPlace::Train => "train",
+        }
+    }
 }
 
 /// Phase-end alert, synthesized in `assets/sound.js`.

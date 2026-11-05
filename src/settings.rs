@@ -1,7 +1,7 @@
 use crate::i18n::{EN, JA, LANG, fill, tr};
 use crate::icons::{Icon, PLUS, TRASH};
 use crate::place::{self, Corner};
-use crate::store::{self, Alert, Character, Lang, ProductiveScene, Settings, SkyMode, SoundProfile, Store, Theme, Token, Weather, WindowSize, parse_hex};
+use crate::store::{self, Alert, Character, Lang, ProductivePlace, Settings, SkyMode, SoundProfile, Store, Theme, Token, WastedPlace, Weather, WindowSize, parse_hex};
 use crate::{GLOBAL_KEYS, HotkeysOk, autostart, commit, set_pinned, sound};
 use dioxus::desktop::window;
 use dioxus::prelude::*;
@@ -126,16 +126,31 @@ pub fn SettingsTab() -> Element {
                 if s.character.show {
                     crate::scene::Scene {}
                     ToggleRow { label: t.animate_unfocused, on: s.character.animate_unfocused, ontoggle: move |_| flip(|s| &mut s.character.animate_unfocused) }
+                    // Where she goes in each mode: the default moves between places.
                     div { class: "set-row",
                         span { "{t.when_productive}" }
-                        div { class: "seg small", style: "--i: {usize::from(s.character.scene == ProductiveScene::Reading)}; --n: 2",
+                        div { class: "seg small", style: "--i: {ProductivePlace::ALL.iter().position(|p| *p == s.character.productive_place).unwrap_or(0)}; --n: 4",
                             span { class: "seg-pill" }
-                            for (scene, name) in [(ProductiveScene::Fishing, t.fishing), (ProductiveScene::Reading, t.reading)] {
+                            for (i, place) in ProductivePlace::ALL.into_iter().enumerate() {
                                 button {
-                                    key: "{name}",
-                                    class: if s.character.scene == scene { "seg-btn on" } else { "seg-btn" },
-                                    onclick: move |_| commit(store, |st| st.settings.character.scene = scene),
-                                    "{name}"
+                                    key: "{place.key()}",
+                                    class: if s.character.productive_place == place { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| commit(store, |st| st.settings.character.productive_place = place),
+                                    "{t.places[i]}"
+                                }
+                            }
+                        }
+                    }
+                    div { class: "set-row",
+                        span { "{t.when_wasted}" }
+                        div { class: "seg small", style: "--i: {WastedPlace::ALL.iter().position(|p| *p == s.character.wasted_place).unwrap_or(0)}; --n: 3",
+                            span { class: "seg-pill" }
+                            for (i, place) in WastedPlace::ALL.into_iter().enumerate() {
+                                button {
+                                    key: "{place.key()}",
+                                    class: if s.character.wasted_place == place { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| commit(store, |st| st.settings.character.wasted_place = place),
+                                    "{t.commutes[i]}"
                                 }
                             }
                         }

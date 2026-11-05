@@ -168,7 +168,8 @@ fn main() {
         .with_close_behaviour(WindowCloseBehaviour::WindowHides)
         // Our tray handler toggles; Dioxus' default would show and then we'd hide it again.
         .with_tray_icon_show_window_on_click(false)
-        .with_disable_context_menu(!cfg!(debug_assertions));
+        // No browser menu (Back, Refresh, Save image as, Inspect…) on right-click, in any build.
+        .with_disable_context_menu(true);
 
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).with_context(initial).launch(App);
     drop(lock);
