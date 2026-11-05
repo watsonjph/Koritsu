@@ -311,23 +311,25 @@ impl SkyMode {
     }
 }
 
-/// Rain in the scene: occasional rainy spells, never, or always.
+/// Weather in the scene: occasional rainy spells (snow in winter), never, always rain, always snow.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum Weather {
     #[default]
     Auto,
     Clear,
     Rain,
+    Snow,
 }
 
 impl Weather {
-    pub const ALL: [Weather; 3] = [Weather::Auto, Weather::Clear, Weather::Rain];
+    pub const ALL: [Weather; 4] = [Weather::Auto, Weather::Clear, Weather::Rain, Weather::Snow];
 
     pub fn key(self) -> &'static str {
         match self {
             Weather::Auto => "auto",
             Weather::Clear => "clear",
             Weather::Rain => "rain",
+            Weather::Snow => "snow",
         }
     }
 }

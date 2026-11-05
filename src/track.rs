@@ -59,6 +59,8 @@ pub fn TrackTab() -> Element {
         None => (t.idle.to_string(), "00:00".to_string()),
     };
     let kind_class = running.as_ref().map_or("idle", |r| r.kind.class());
+    // Productive and wasted time have named activities to switch between; breaks don't.
+    let switchable = running.as_ref().map(|r| r.kind).filter(|k| *k != Kind::Break);
 
     rsx! {
         div { class: "tab track-tab",
@@ -67,9 +69,21 @@ pub fn TrackTab() -> Element {
                 div { class: "scene-card",
                     crate::scene::Scene {}
                     div { class: "hud",
-                        span { class: "hud-pill {kind_class}",
-                            if running.is_some() { span { class: "live-dot {kind_class}" } }
-                            "{status}"
+                        // While tracking, the label switches activity without stopping.
+                        if let Some(kind) = switchable {
+                            button {
+                                class: "hud-pill switch {kind_class}",
+                                title: "{t.switch_activity}",
+                                onclick: move |_| *ASK.write() = Some(Ask::Switch(kind)),
+                                span { class: "live-dot {kind_class}" }
+                                span { class: "pill-text", "{status}" }
+                                span { class: "switch-icon", "⇄" }
+                            }
+                        } else {
+                            span { class: "hud-pill {kind_class}",
+                                if running.is_some() { span { class: "live-dot {kind_class}" } }
+                                "{status}"
+                            }
                         }
                         span { class: "hud-pill hud-clock", "{clock}" }
                     }
@@ -79,6 +93,14 @@ pub fn TrackTab() -> Element {
                     div { class: "caption {kind_class}",
                         if running.is_some() { span { class: "live-dot {kind_class}" } }
                         "{status}"
+                        if let Some(kind) = switchable {
+                            button {
+                                class: "switch-btn",
+                                title: "{t.switch_activity}",
+                                onclick: move |_| *ASK.write() = Some(Ask::Switch(kind)),
+                                "⇄"
+                            }
+                        }
                     }
                     div { class: if running.is_some() { "big-clock" } else { "big-clock dim" }, "{clock}" }
                 }

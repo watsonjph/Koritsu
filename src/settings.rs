@@ -140,7 +140,7 @@ pub fn SettingsTab() -> Element {
                     }
                     div { class: "set-row",
                         span { "{t.weather}" }
-                        div { class: "seg small", style: "--i: {Weather::ALL.iter().position(|w| *w == s.character.weather).unwrap_or(0)}; --n: 3",
+                        div { class: "seg small", style: "--i: {Weather::ALL.iter().position(|w| *w == s.character.weather).unwrap_or(0)}; --n: 4",
                             span { class: "seg-pill" }
                             for (i, weather) in Weather::ALL.into_iter().enumerate() {
                                 button {

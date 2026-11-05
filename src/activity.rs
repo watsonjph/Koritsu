@@ -12,6 +12,8 @@ use dioxus::prelude::*;
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Ask {
     Track(Kind),
+    /// Change what you're doing without stopping: ends the current entry, starts the new one.
+    Switch(Kind),
     Focus,
 }
 
@@ -19,7 +21,7 @@ impl Ask {
     /// Focus blocks are productive time, so they share productive's list.
     fn kind(self) -> Kind {
         match self {
-            Ask::Track(k) => k,
+            Ask::Track(k) | Ask::Switch(k) => k,
             Ask::Focus => Kind::Productive,
         }
     }
@@ -30,7 +32,8 @@ pub static ASK: GlobalSignal<Option<Ask>> = Signal::global(|| None);
 fn begin(store: Signal<Store>, pomo: Signal<Pomo>, ask: Ask, name: String) {
     *ASK.write() = None;
     match ask {
-        Ask::Track(kind) => track::start(store, pomo, kind, name),
+        // Starting while something runs logs that entry first, so a switch is just a start.
+        Ask::Track(kind) | Ask::Switch(kind) => track::start(store, pomo, kind, name),
         Ask::Focus => {
             commit(store, |s| {
                 s.remember(Kind::Productive, &name);
@@ -53,6 +56,7 @@ pub fn ActivityPrompt() -> Element {
     let title = match ask {
         Ask::Track(Kind::Productive) => t.ask_productive,
         Ask::Track(Kind::Wasted | Kind::Break) => t.ask_wasted,
+        Ask::Switch(_) => t.switch_to,
         Ask::Focus => t.ask_focus,
     };
     let mut close = move || {

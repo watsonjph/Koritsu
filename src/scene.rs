@@ -33,6 +33,8 @@ pub fn Scene() -> Element {
         let st = store.read();
         let state = serde_json::json!({
             "mood": mood(&st, &pomo.read()),
+            // where she idles: wherever the last thing you logged happened
+            "last": st.entries.iter().max_by_key(|e| e.end).map(|e| e.kind.class()),
             "productive": if st.settings.character.scene == ProductiveScene::Reading { "reading" } else { "fishing" },
             "weather": st.settings.character.weather.key(),
             "sky": st.settings.character.sky.key(),
