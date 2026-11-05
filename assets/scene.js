@@ -532,7 +532,9 @@ window.koritsuScene = (() => {
 
   // ---------- engine ----------
   const canvases = new Map();
-  let state = { mood: "idle", productive: "fishing", weather: "auto", character: {} };
+  let state = { mood: "idle", productive: "fishing", weather: "auto", sky: "auto", character: {} };
+  // The Sky setting pins the scene to one time of day; "auto" follows the clock.
+  const FIXED_HOUR = { day: 12, sunset: 18.25, night: 23 };
   let t = 0;
   const back = document.createElement("canvas"), front = document.createElement("canvas"), skyfx = document.createElement("canvas");
   back.width = front.width = skyfx.width = W;
@@ -548,7 +550,7 @@ window.koritsuScene = (() => {
     fr.clearRect(0, 0, W, H);
     const now = new Date();
     const rain = rainAt(state.weather, now);
-    const s = sky(now.getHours() + now.getMinutes() / 60, rain);
+    const s = sky(FIXED_HOUR[state.sky] ?? now.getHours() + now.getMinutes() / 60, rain);
     const indoors = state.mood === "wasted" || state.mood === "break";
     if (indoors) {
       bedroom(b, t, s);

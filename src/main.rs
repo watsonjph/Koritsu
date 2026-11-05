@@ -82,17 +82,11 @@ pub fn set_pinned(store: Signal<Store>, on: bool) {
     commit(store, |s| s.settings.pinned = on);
 }
 
-/// Copper ring with a dot, drawn in code so there's no image to decode.
-fn icon_rgba(n: u32) -> Vec<u8> {
-    let c = (n as f32 - 1.0) / 2.0;
-    (0..n * n)
-        .flat_map(|i| {
-            let (x, y) = ((i % n) as f32 - c, (i / n) as f32 - c);
-            let r = (x * x + y * y).sqrt() / c;
-            let on = (0.62..=0.98).contains(&r) || r <= 0.28;
-            if on { [217, 132, 47, 255] } else { [0, 0, 0, 0] }
-        })
-        .collect()
+/// The fox app icon as RGBA pixels, with its width and height.
+fn icon_rgba() -> (Vec<u8>, u32, u32) {
+    let img = image::load_from_memory(include_bytes!("../assets/icon.png")).expect("bundled icon is a valid PNG").to_rgba8();
+    let (w, h) = img.dimensions();
+    (img.into_raw(), w, h)
 }
 
 fn main() {
@@ -123,11 +117,17 @@ fn main() {
     let win = WindowBuilder::new()
         .with_title("Koritsu")
         .with_decorations(false)
-        .with_inner_size(LogicalSize::new(360.0, 560.0))
-        .with_min_inner_size(LogicalSize::new(320.0, 480.0))
+        .with_inner_size({
+            let (w, h) = initial.settings.window_size.logical();
+            LogicalSize::new(w, h)
+        })
+        .with_resizable(false)
         .with_always_on_top(initial.settings.pinned)
         .with_visible(!hidden)
-        .with_window_icon(dioxus::desktop::tao::window::Icon::from_rgba(icon_rgba(64), 64, 64).ok());
+        .with_window_icon({
+            let (rgba, w, h) = icon_rgba();
+            dioxus::desktop::tao::window::Icon::from_rgba(rgba, w, h).ok()
+        });
 
     let cfg = Config::new()
         .with_window(win)
@@ -177,7 +177,10 @@ fn App() -> Element {
         let tray = TrayIconBuilder::new()
             .with_tooltip("Koritsu 効率")
             .with_menu(Box::new(menu))
-            .with_icon(TrayImage::from_rgba(icon_rgba(32), 32, 32).expect("valid icon"))
+            .with_icon({
+                let (rgba, w, h) = icon_rgba();
+                TrayImage::from_rgba(rgba, w, h).expect("valid icon")
+            })
             .build();
         if tray.is_err() {
             // No tray to come back from, so closing must really close.
@@ -340,8 +343,8 @@ fn settle(store: Signal<Store>) {
     if !w.is_visible() || w.is_minimized() {
         return;
     }
-    // A snap moves the window, which fires another settle that saves the final spot.
-    if store.peek().settings.snap && place::snap_now(&w) {
+    // Each move fires another settle, which saves the final spot.
+    if place::keep_on_screen(&w) || (store.peek().settings.snap && place::snap_now(&w)) {
         return;
     }
     let g = place::geom(&w);

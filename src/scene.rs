@@ -35,6 +35,7 @@ pub fn Scene() -> Element {
             "mood": mood(&st, &pomo.read()),
             "productive": if st.settings.character.scene == ProductiveScene::Reading { "reading" } else { "fishing" },
             "weather": st.settings.character.weather.key(),
+            "sky": st.settings.character.sky.key(),
             "character": st.settings.character.to_js(),
         });
         document::eval(&format!("window.koritsuScene?.update({state})"));

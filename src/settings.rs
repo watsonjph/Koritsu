@@ -1,7 +1,7 @@
 use crate::i18n::{EN, JA, LANG, fill, tr};
 use crate::icons::{Icon, PLUS, TRASH};
 use crate::place::{self, Corner};
-use crate::store::{self, Alert, Character, Lang, ProductiveScene, Settings, SoundProfile, Store, Theme, Token, Weather, parse_hex};
+use crate::store::{self, Alert, Character, Lang, ProductiveScene, Settings, SkyMode, SoundProfile, Store, Theme, Token, Weather, WindowSize, parse_hex};
 use crate::{GLOBAL_KEYS, HotkeysOk, autostart, commit, set_pinned, sound};
 use dioxus::desktop::window;
 use dioxus::prelude::*;
@@ -79,7 +79,7 @@ pub fn SettingsTab() -> Element {
                     input {
                         r#type: "range",
                         class: "slider mini",
-                        style: "--c: var(--accent); --pct: {volume}%",
+                        style: "--c: var(--accent); --f: {f64::from(volume) / 100.0}",
                         min: "0",
                         max: "100",
                         value: "{volume}",
@@ -152,6 +152,20 @@ pub fn SettingsTab() -> Element {
                             }
                         }
                     }
+                    div { class: "set-row",
+                        span { "{t.sky}" }
+                        div { class: "seg small", style: "--i: {SkyMode::ALL.iter().position(|m| *m == s.character.sky).unwrap_or(0)}; --n: 4",
+                            span { class: "seg-pill" }
+                            for (i, mode) in SkyMode::ALL.into_iter().enumerate() {
+                                button {
+                                    key: "{mode.key()}",
+                                    class: if s.character.sky == mode { "seg-btn on" } else { "seg-btn" },
+                                    onclick: move |_| commit(store, |st| st.settings.character.sky = mode),
+                                    "{t.skies[i]}"
+                                }
+                            }
+                        }
+                    }
                     for (label, field, value, custom) in char_rows {
                         ColorRow {
                             key: "{label}",
@@ -186,7 +200,7 @@ pub fn SettingsTab() -> Element {
                     ColorRow {
                         key: "{token:?}",
                         label: token_label(token),
-                        value: s.color(token).to_string(),
+                        value: s.color(token),
                         custom: s.is_custom(token),
                         onpick: move |c| commit(store, |st| st.settings.set_color(token, c)),
                     }
@@ -222,6 +236,24 @@ pub fn SettingsTab() -> Element {
 
             div { class: "caption", "{t.sec_window}" }
             div { class: "group",
+                div { class: "set-row",
+                    span { "{t.window_size}" }
+                    div { class: "seg small", style: "--i: {WindowSize::ALL.iter().position(|w| *w == s.window_size).unwrap_or(0)}; --n: 3",
+                        span { class: "seg-pill" }
+                        for (i, size) in WindowSize::ALL.into_iter().enumerate() {
+                            button {
+                                key: "{i}",
+                                class: if s.window_size == size { "seg-btn on" } else { "seg-btn" },
+                                onclick: move |_| {
+                                    commit(store, |st| st.settings.window_size = size);
+                                    let (w, h) = size.logical();
+                                    window().set_inner_size(dioxus::desktop::LogicalSize::new(w, h));
+                                },
+                                "{t.window_sizes[i]}"
+                            }
+                        }
+                    }
+                }
                 ToggleRow { label: t.snap, on: s.snap, ontoggle: move |_| flip(|s| &mut s.snap) }
                 div { class: "set-row",
                     span { "{t.move_to_corner}" }

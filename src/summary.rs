@@ -162,8 +162,8 @@ pub fn Highlights(period: Period) -> Element {
     }
 
     rsx! {
-        div { class: "highlights",
-            span { class: "caption", "{t.highlights}" }
+        div { class: "block highlights",
+            span { class: "block-title", "{t.highlights}" }
             if cards.is_empty() {
                 div { class: "empty", "{t.no_highlights}" }
             }
