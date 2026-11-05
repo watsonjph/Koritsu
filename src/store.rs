@@ -361,16 +361,18 @@ pub enum ProductivePlace {
     Tokyo,
     Akiba,
     Inaka,
+    River,
 }
 
 impl ProductivePlace {
-    pub const ALL: [ProductivePlace; 6] = [
+    pub const ALL: [ProductivePlace; 7] = [
         ProductivePlace::Travel,
         ProductivePlace::Lake,
         ProductivePlace::Fuji,
         ProductivePlace::Tokyo,
         ProductivePlace::Akiba,
         ProductivePlace::Inaka,
+        ProductivePlace::River,
     ];
 
     pub fn key(self) -> &'static str {
@@ -381,6 +383,7 @@ impl ProductivePlace {
             ProductivePlace::Tokyo => "tokyo",
             ProductivePlace::Akiba => "akiba",
             ProductivePlace::Inaka => "inaka",
+            ProductivePlace::River => "kawa",
         }
     }
 }
