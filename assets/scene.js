@@ -2,7 +2,7 @@
 // 64×64) acting out what you're doing. Backgrounds are drawn in code at 160×80 and doubled,
 // the sprite is drawn at full detail on top.
 //
-// Moods: idle (strolling on the dock), productive (fishing or reading), wasted (in bed,
+// Moods: idle (strolling on the dock), productive (fishing or reading), wasted (on a train,
 // doomscrolling), break (asleep). The outdoor sky follows the local time of day.
 window.koritsuScene = (() => {
   const W = 160, H = 80, S = 2; // background resolution and its upscale
@@ -142,6 +142,21 @@ window.koritsuScene = (() => {
     [23, 47, "osssso"],
     [24, 48, "oooo"],
   ];
+  // On her phone the far arm comes forward under the near one, so both hands hold it.
+  const PHONE_ARM = [
+    [29, 37, "owwo"],
+    [28, 38, "owwwo"],
+    [27, 39, "owwwvo"],
+    [26, 40, "owwwvo"],
+    [26, 41, "owwvVo"],
+    [21, 42, "owwwwwvVo"],
+    [17, 43, "owwwwwwwvVVo"],
+    [14, 44, "ossowwwwwvVVo"],
+    [13, 45, "osssowwwvVVo"],
+    [14, 46, "oooooooooo"],
+  ];
+  const PHONE = { x: 10, y: 37, w: 5, h: 9 }; // in front of her chest, below the chin
+  const PHONE_GRIP = { x: 13, y: 44, w: 4, h: 3 }; // far hand, redrawn over the phone
   const GRIP = { x: 11, y: 40, w: 5, h: 3 }; // near fist, redrawn over the rod
   const BACK_GRIP = { x: 23, y: 46, w: 6, h: 2 }; // far hand, redrawn over the rod
   const BUTT = [25, 47]; // the rod's end, in the far hand
@@ -149,7 +164,7 @@ window.koritsuScene = (() => {
   const LEGS = [[23, 7], [31, 8]]; // [x, width] of each lower leg, rows HEM+1..61
   const SLEEVE = new Set(["#fdfcfa", "#c8b6c4", "#ac9eb4", "#5c5854", "#696461", "#393331", "#fce1c8", "#edb9af", "#cb8e76"]);
 
-  function buildSit(src, rc) {
+  function buildSit(src, rc, back = BACK_ARM) {
     const cv = document.createElement("canvas");
     cv.width = cv.height = FW;
     const g = cv.getContext("2d");
@@ -174,7 +189,7 @@ window.koritsuScene = (() => {
       if (sleeveish(colourAt(x, y))) set(x, y, x >= 41 ? edge : y <= 40 ? kimono : hakama);
     }
     const pal = { o: rc("#393331"), w: "#fdfcfa", v: "#c8b6c4", V: "#ac9eb4", s: rc("#fce1c8") };
-    for (const [x0, y, row] of [...BACK_ARM, ...ARM]) [...row].forEach((k, i) => k !== "." && set(x0 + i, y, pal[k]));
+    for (const [x0, y, row] of [...back, ...ARM]) [...row].forEach((k, i) => k !== "." && set(x0 + i, y, pal[k]));
     g.putImageData(id, 0, 0);
     const legs = LEGS.map(([x, w]) => {
       const l = document.createElement("canvas");
@@ -243,6 +258,8 @@ window.koritsuScene = (() => {
     cache.sit = sit.cv;
     cache.sitShut = sitShut.cv;
     cache.legs = sit.legs;
+    cache.sitPhone = buildSit(cache.frames[0], rc, PHONE_ARM).cv;
+    cache.sitPhoneShut = buildSit(cache.shut, rc, PHONE_ARM).cv;
     cache.anims = Object.fromEntries(Object.entries(anims).map(([n, a]) => [n, a.raw.map((r) => build(r, false))]));
     // The hand nearest the front (lowest skin pixels on the left half of frame 0) holds things.
     let best = null;
@@ -283,7 +300,7 @@ window.koritsuScene = (() => {
     [24, "#0d1230", "#222752", 1],
   ];
 
-  function sky(hour, rain) {
+  function sky(hour, rain, snow = false) {
     let i = 0;
     while (hour > SKY[i + 1][0]) i++;
     const [h0, t0, b0, d0] = SKY[i], [h1, t1, b1, d1] = SKY[i + 1];
@@ -291,8 +308,9 @@ window.koritsuScene = (() => {
     let top = mix(t0, t1, u), bottom = mix(b0, b1, u), dark = d0 + (d1 - d0) * u;
     if (rain) {
       // overcast: wash toward grey, a little darker
-      top = mix(top, mix("#5f6878", "#1c2030", dark), 0.6 * rain);
-      bottom = mix(bottom, mix("#8a93a3", "#2a2f40", dark), 0.6 * rain);
+      // snow clouds are paler than rain clouds
+      top = mix(top, mix(snow ? "#a7aebb" : "#5f6878", "#1c2030", dark), 0.6 * rain);
+      bottom = mix(bottom, mix(snow ? "#d2d6de" : "#8a93a3", "#2a2f40", dark), 0.6 * rain);
       dark = Math.min(1, dark + 0.12 * rain);
     }
     return { top, bottom, dark, hour, rain };
@@ -300,7 +318,7 @@ window.koritsuScene = (() => {
 
   // Is it raining? "auto" makes roughly one hour in five rainy, the same for everyone at that hour.
   function rainAt(mode, now) {
-    if (mode === "rain") return 1;
+    if (mode === "rain" || mode === "snow") return 1;
     if (mode === "clear") return 0;
     const start = new Date(now.getFullYear(), 0, 0);
     const n = Math.floor((now - start) / 3600000);
@@ -737,6 +755,388 @@ window.koritsuScene = (() => {
     rect(ctx, x0, 122, x1 - x0, 1, dark);
   }
 
+  // ---------- the train ----------
+  // Seen from the side: forward-facing seats under one long window, scenery sliding past.
+  // She sits in the middle seat facing right, on her phone.
+  const WIN_TOP = 22, WIN_BOTTOM = 70;
+  const PILLARS = [36, 126, 216, 306]; // frames between the panes, 8 wide
+  const SEATS = [60, 150, 240]; // left edge of each seat back; she sits in the middle one
+  const SEAT_TOP = 110;
+  function trainLayers(s) {
+    const out = layer(), o = out.getContext("2d");
+    bands(o, s.top, s.bottom, WIN_TOP, WIN_BOTTOM, 5);
+    stars(o, 0, 0, SW, WIN_TOP, WIN_BOTTOM - 20, s.dark * (1 - s.rain));
+    o.save();
+    o.beginPath();
+    o.rect(0, WIN_TOP, SW, WIN_BOTTOM - WIN_TOP);
+    o.clip();
+    celestial(o, s, 0, SW, WIN_TOP, WIN_BOTTOM);
+    o.restore();
+
+    const car = layer(), g = car.getContext("2d");
+    const lit = (c) => mix(c, "#2a2840", s.dark * 0.25); // the lights are on; night still shows a little
+    const frame = lit("#9aa2ab"), shine = lit("#c3c9cf"), steel = lit("#7d848c");
+    rect(g, 0, 0, SW, SH, lit("#e6dfcc")); // wall
+    rect(g, 0, 0, SW, 8, lit("#d4cebf")); // ceiling
+    rect(g, 0, 3, SW, 2, "#fff6d8"); // light strip
+    // luggage rack
+    rect(g, 0, 11, SW, 2, shine);
+    for (let x = 0; x < SW; x += 4) rect(g, x, 13, 1, 3, steel);
+    rect(g, 0, 16, SW, 1, steel);
+    // window, frames and sill
+    rect(g, 0, WIN_TOP - 3, SW, WIN_BOTTOM - WIN_TOP + 6, frame);
+    g.clearRect(0, WIN_TOP, SW, WIN_BOTTOM - WIN_TOP);
+    for (const x of PILLARS) {
+      rect(g, x, WIN_TOP - 3, 8, WIN_BOTTOM - WIN_TOP + 6, frame);
+      rect(g, x + 1, WIN_TOP, 1, WIN_BOTTOM - WIN_TOP, shine);
+    }
+    rect(g, 0, WIN_BOTTOM + 1, SW, 2, shine);
+    rect(g, 0, WIN_BOTTOM + 3, SW, 1, steel);
+    // lower wall and floor
+    rect(g, 0, 98, SW, 38, lit("#d3cab3"));
+    rect(g, 0, 98, SW, 1, lit("#bdb39a"));
+    rect(g, 0, 136, SW, 24, lit("#7b7f86"));
+    rect(g, 0, 136, SW, 2, lit("#9aa0a8"));
+    for (let x = 3; x < SW; x += 9) px(g, x, 142 + (x % 4) * 4, lit("#8c9097"));
+    // seats: tall back with a white headrest cover, cushion, pedestal
+    const seat = lit("#3f6f93"), seatLit = lit("#5e8fb5"), seatDark = lit("#2c4f6b");
+    for (const x of SEATS) {
+      rect(g, x, 60, 12, SEAT_TOP - 58, seat);
+      rect(g, x + 1, 60, 2, SEAT_TOP - 58, seatLit);
+      rect(g, x + 10, 60, 2, SEAT_TOP - 58, seatDark);
+      rect(g, x + 1, 58, 10, 2, seat);
+      rect(g, x, 60, 12, 12, "#f2f0ea");
+      rect(g, x, 71, 12, 1, "#d6d2c8");
+      rect(g, x + 12, SEAT_TOP, 26, 8, seat);
+      rect(g, x + 12, SEAT_TOP, 26, 2, seatLit);
+      rect(g, x + 12, SEAT_TOP + 7, 26, 1, seatDark);
+      rect(g, x + 18, SEAT_TOP + 8, 12, 136 - SEAT_TOP - 8, lit("#5d6066"));
+      rect(g, x + 18, SEAT_TOP + 8, 12, 1, lit("#45484d"));
+    }
+    return [out, car];
+  }
+
+  // Outside the window: hills, houses and poles sliding past at their own speeds.
+  function passing(ctx, tf, s, rain, snow) {
+    const y0 = WIN_TOP, y1 = WIN_BOTTOM;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, y0, SW, y1 - y0);
+    ctx.clip();
+    const far = mix("#9cbad4", "#26304e", s.dark), mid = mix("#6f9f78", "#1b2639", s.dark);
+    const roof = mix("#b8584a", "#2a2236", s.dark), near = mix("#4e7d5a", "#121a2a", s.dark);
+    for (let x = 0; x < SW; x++) {
+      const h = Math.round(16 * noise((x + tf * 0.5) / 26));
+      rect(ctx, x, y1 - 14 - h, 1, h + 14, far);
+    }
+    const span = SW + 60;
+    for (let i = 0; i < 9; i++) {
+      const x = Math.round(((i * 41 - tf * 3) % span + span) % span) - 40;
+      if (i % 3 === 0) {
+        disc(ctx, x + 6, y1 - 13, 6, mid);
+        rect(ctx, x + 5, y1 - 8, 2, 8, mid);
+        continue;
+      }
+      const w = 14 + (i % 2) * 6, h = 8 + (i % 4) * 2;
+      rect(ctx, x, y1 - h, w, h, mid);
+      for (let r = 0; r < 4; r++) rect(ctx, x - 1 + r, y1 - h - 4 + r, w + 2 - r * 2, 1, roof);
+      if (s.dark > 0.4) for (let k = 3; k < w - 2; k += 5) rect(ctx, x + k, y1 - h + 3, 2, 2, "#ffd77a");
+    }
+    rect(ctx, 0, y1 - 4, SW, 4, near);
+    rect(ctx, 0, y0 + 7, SW, 1, mix("#3a3f48", "#0c1018", s.dark)); // overhead wire
+    for (let i = 0; i < 3; i++) {
+      const x = Math.round(((i * 150 - tf * 20) % (SW + 150) + SW + 150) % (SW + 150)) - 20;
+      rect(ctx, x, y0, 3, y1 - y0, mix("#3a3f48", "#0c1018", s.dark));
+    }
+    if (rain) {
+      ctx.fillStyle = mix(s.bottom, "#ffffff", 0.6);
+      ctx.globalAlpha = 0.55;
+      for (let i = 0; i < 36; i++) {
+        const x = Math.round(((i * 47 - tf * 6) % SW + SW) % SW), y = y0 + ((i * 13 + Math.floor(tf)) % (y1 - y0));
+        ctx.fillRect(x, y, 4, 1);
+        ctx.fillRect(x + 4, y + 1, 2, 1);
+      }
+    }
+    if (snow) snowfall(ctx, tf, s, [0, y0, SW, y1 - y0], 60, 7);
+    // glare on the glass
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = "#ffffff";
+    for (const x0 of [60, 190]) for (let k = 0; k < 10; k++) ctx.fillRect(x0 + k * 2, y1 - 6 - k * 4, 6, 4);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // Hand straps hanging from the rack, swaying with the train.
+  function straps(ctx, tf) {
+    for (let i = 0; i < 7; i++) {
+      const x = 22 + i * 46, sway = Math.round(Math.sin(tf / 5 + i * 0.7) * 1.2);
+      rect(ctx, x, 17, 2, 8, "#f2f0ea");
+      rect(ctx, x + Math.round(sway / 2), 25, 2, 4, "#f2f0ea");
+      paint(ctx, [".ooo.", "o...o", "o...o", ".ooo."], x - 1 + sway, 29, { o: "#d8d2c4" });
+    }
+  }
+
+  // ---------- lettering: a 3×5 pixel font, and kanji snapped from the system font ----------
+  const FONT = {
+    A: ".#./#.#/###/#.#/#.#", B: "##./#.#/##./#.#/##.", C: ".##/#../#../#../.##", D: "##./#.#/#.#/#.#/##.",
+    E: "###/#../##./#../###", F: "###/#../##./#../#..", G: ".##/#../#.#/#.#/.##", H: "#.#/#.#/###/#.#/#.#",
+    I: "###/.#./.#./.#./###", J: "..#/..#/..#/#.#/.#.", K: "#.#/#.#/##./#.#/#.#", L: "#../#../#../#../###",
+    M: "#.#/###/###/#.#/#.#", N: "##./#.#/#.#/#.#/#.#", O: ".#./#.#/#.#/#.#/.#.", P: "##./#.#/##./#../#..",
+    Q: ".#./#.#/#.#/##./.##", R: "##./#.#/##./#.#/#.#", S: ".##/#../.#./..#/##.", T: "###/.#./.#./.#./.#.",
+    U: "#.#/#.#/#.#/#.#/###", V: "#.#/#.#/#.#/#.#/.#.", W: "#.#/#.#/###/###/#.#", X: "#.#/#.#/.#./#.#/#.#",
+    Y: "#.#/#.#/.#./.#./.#.", Z: "###/..#/.#./#../###",
+    0: "###/#.#/#.#/#.#/###", 1: ".#./##./.#./.#./###", 2: "##./..#/.#./#../###", 3: "##./..#/.#./..#/##.",
+    4: "#.#/#.#/###/..#/..#", 5: "###/#../##./..#/##.", 6: ".##/#../###/#.#/###", 7: "###/..#/.#./.#./.#.",
+    8: "###/#.#/###/#.#/###", 9: "###/#.#/###/..#/##.",
+    ":": ".../.#./.../.#./...", ".": ".../.../.../.../.#.", "-": ".../.../###/.../...",
+    ">": "#../.#./..#/.#./#..", "<": "..#/.#./#../.#./..#",
+  };
+  const textWidth = (str) => str.length * 4 - 1;
+  function text(ctx, str, x, y, color) {
+    ctx.fillStyle = color;
+    [...str.toUpperCase()].forEach((ch, i) => {
+      FONT[ch]?.split("/").forEach((row, r) => [...row].forEach((k, c) => k === "#" && ctx.fillRect(x + i * 4 + c, y + r, 1, 1)));
+    });
+  }
+  // ponytail: kanji come from the system's Japanese font (every Windows and macOS has one; a bare
+  // Linux without CJK fonts shows boxes). Hand-drawn glyphs if that matters.
+  const glyphs = new Map();
+  function kanjiGlyph(str, size, color) {
+    const key = `${str}|${size}|${color}`;
+    if (!glyphs.has(key)) {
+      const c = document.createElement("canvas");
+      c.width = size * str.length + 4;
+      c.height = size + 4;
+      const g = c.getContext("2d");
+      g.font = `bold ${size}px "Yu Gothic", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
+      g.textBaseline = "top";
+      g.fillText(str, 0, 1);
+      const id = g.getImageData(0, 0, c.width, c.height), d = id.data, [r, gr, b] = hex(color);
+      for (let k = 0; k < d.length; k += 4) [d[k], d[k + 1], d[k + 2], d[k + 3]] = d[k + 3] > 110 ? [r, gr, b, 255] : [0, 0, 0, 0];
+      g.putImageData(id, 0, 0);
+      glyphs.set(key, { c, w: Math.ceil(g.measureText(str).width) });
+    }
+    return glyphs.get(key);
+  }
+
+  // ---------- the commute: wait on a platform, ride to the next station, repeat ----------
+  const ROUTE = [["桜", "SAKURA"], ["稲荷", "INARI"], ["月見", "TSUKIMI"], ["蛍", "HOTARU"], ["湖畔", "KOHAN"], ["紅葉", "MOMIJI"]];
+  const SERVICES = [["LOCAL", "#3fae5a"], ["RAPID", "#f28b30"], ["EXPRESS", "#e0484d"], ["SEMI EXP", "#3f8fd8"]];
+  const WAIT = 34000, RIDE = 30000, LEG = WAIT + RIDE; // ms on the platform, then on the train
+  // Within WAIT: she steps off and walks to the bench, her train pulls out, the next pulls in and
+  // opens its doors, she walks over and hops on, the doors shut.
+  const OFF = 1000, DOWN = 1800, SEATED = 4500, LEAVE = 3000, GONE = 9000;
+  const ARRIVE = 22000, DOORS = 28000, STAND = 28500, HOP = 31000, ON = 31800, SHUT = 33000;
+  const BENCH_X = 150, PLATFORM_FEET = 126;
+  const PLATFORM = 100; // far edge of the platform; the far track runs just behind it
+  const LINE = "#3fae5a";
+  const at = (i) => ROUTE[((i % ROUTE.length) + ROUTE.length) % ROUTE.length];
+  const service = (i) => SERVICES[((i % SERVICES.length) + SERVICES.length) % SERVICES.length];
+  const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+  // Static parts: what's across the tracks, and the platform itself.
+  function stationLayers(s, i) {
+    const far = layer(), g = far.getContext("2d");
+    bands(g, s.top, s.bottom, 0, PLATFORM, 6);
+    stars(g, 0, 0, SW, 0, 60, s.dark * (1 - s.rain));
+    celestial(g, s, 0, SW, 0, 70);
+    const hill = mix(s.bottom, "#5a6a9a", 0.45);
+    for (let x = 0; x < SW; x++) {
+      const h = Math.round(22 * noise(x / 40 + i * 3));
+      rect(g, x, 70 - h, 1, h + 30, hill);
+    }
+    // the town across the tracks; each station's is different
+    for (let x = -6, n = 0; x < SW; n++) {
+      const w = 18 + Math.floor(hash(n * 7 + i * 31) * 22), h = 12 + Math.floor(hash(n * 3 + i * 17) * 18);
+      const wall = ["#e9e1d3", "#d6dbe4", "#efe6da", "#cfd6cf"][Math.floor(hash(n + i * 5) * 4)];
+      rect(g, x, 92 - h, w, h, wall);
+      rect(g, x - 2, 92 - h - 3, w + 4, 3, "#5a4b5e");
+      rect(g, x + 2, 92 - h - 5, w - 4, 2, "#5a4b5e");
+      for (let k = 4; k < w - 3; k += 6) rect(g, x + k, 92 - h + 4, 3, 3, "#7b8aa8");
+      x += w + 4 + Math.floor(hash(n * 11 + i) * 16);
+    }
+    // cherry trees
+    for (const tx of [(i * 53) % 90 + 4, 250 + ((i * 29) % 50)]) {
+      rect(g, tx + 9, 66, 3, 28, "#5a3a3e");
+      for (const [dx, dy, r, c] of [[10, 58, 13, "#e98fb0"], [3, 62, 8, "#f2a7c3"], [18, 61, 9, "#f2a7c3"], [10, 52, 7, "#f7c6d9"]]) disc(g, tx + dx, dy, r, c, Math.round(r * 0.8));
+    }
+    // a utility pole and its wires
+    const pole = 150 + ((i * 41) % 60);
+    rect(g, pole, 26, 3, 70, "#4a4f5a");
+    rect(g, pole - 6, 30, 15, 2, "#4a4f5a");
+    for (const y0 of [31, 35]) for (let x = 0; x < SW; x++) px(g, x, y0 + Math.round(4 * Math.sin((Math.abs(x - pole) / 200) * Math.PI)), "#4a4f5a");
+    // fence, ballast and the far track
+    rect(g, 0, 88, SW, 1, "#8a8f9c");
+    for (let x = 0; x < SW; x += 8) rect(g, x, 88, 1, 8, "#8a8f9c");
+    rect(g, 0, 95, SW, 5, "#6d6670");
+    rect(g, 0, 96, SW, 1, "#b0b4bc");
+
+    const plat = layer(), p = plat.getContext("2d");
+    rect(p, 0, PLATFORM, SW, 34, "#aeb2bf");
+    for (let x = 0; x < SW; x += 20) rect(p, x, PLATFORM + 4, 1, 27, "#a3a7b4");
+    rect(p, 0, PLATFORM, SW, 1, "#cfd2da");
+    rect(p, 0, PLATFORM + 1, SW, 3, "#e8c23a"); // tactile strip along the edge
+    for (let x = 1; x < SW; x += 3) px(p, x, PLATFORM + 2, "#c9a42a");
+    rect(p, 0, 131, SW, 2, "#f0f0f0");
+    rect(p, 0, 134, SW, 6, "#7d8290");
+    rect(p, 0, 134, SW, 1, "#959aa6");
+    rect(p, 0, 140, SW, 20, "#262a33"); // the near track, down in its pit
+    for (let x = 4; x < SW; x += 14) rect(p, x, 151, 8, 4, "#3a3530");
+    rect(p, 0, 149, SW, 2, "#8a8f99");
+    rect(p, 0, 156, SW, 2, "#8a8f99");
+    // canopy and pillars (red and white at the base)
+    rect(p, 0, 0, SW, 9, "#4b5568");
+    rect(p, 0, 9, SW, 3, "#3a4252");
+    for (let x = 0; x < SW; x += 40) rect(p, x, 9, 2, 3, "#2e3442");
+    for (const x of [76, 216]) {
+      rect(p, x, 12, 6, 116, "#6c7486");
+      rect(p, x + 1, 12, 1, 116, "#8a93a6");
+      for (let y = 104; y < 128; y += 4) rect(p, x, y, 6, 2, "#e0484d");
+    }
+    // the departures board's rods and frame (the lettering lights up later)
+    rect(p, 116, 12, 2, 4, "#3a3f4a");
+    rect(p, 190, 12, 2, 4, "#3a3f4a");
+    rect(p, 104, 16, 100, 30, "#3a3f4a");
+    rect(p, 105, 17, 98, 28, "#111318");
+    rect(p, 105, 37, 98, 1, "#24272e");
+    // bins by the vending machine
+    for (const [x, c] of [[48, "#4f7ab8"], [60, "#3fae5a"]]) {
+      rect(p, x, 110, 11, 18, "#c9ccd4");
+      rect(p, x + 2, 112, 7, 3, c);
+      rect(p, x + 3, 113, 5, 1, "#222");
+    }
+    // bench: a row of moulded seats
+    for (let k = 0; k < 4; k++) {
+      const x = 120 + k * 18;
+      rect(p, x, 97, 16, 13, "#f2a65a");
+      rect(p, x + 1, 96, 14, 1, "#f2a65a");
+      rect(p, x + 1, 97, 14, 2, "#f8c48a");
+      rect(p, x, 110, 16, 3, "#d98a40");
+    }
+    rect(p, 122, 113, 68, 2, "#5d6066");
+    for (const x of [124, 184]) rect(p, x, 113, 3, 15, "#5d6066");
+    // the station sign's legs
+    for (const x of [238, 300]) rect(p, x, 92, 2, 36, "#8a8f99");
+    return [far, plat];
+  }
+
+  // A commuter train on the far track; `x` is its front (left) end. Doors are tall enough for her.
+  const CAR = 140, CAR_TOP = 24, CAR_BOT = 96, DOOR_TOP = 30, DOOR_W = 22, CAR_DOORS = [16, 62, 108];
+  const TRAIN_STOP = 4; // where the front stops at the platform
+  const DOOR_X = TRAIN_STOP + CAR + 2 + CAR_DOORS[0] + DOOR_W / 2; // the door she uses (second car)
+  const DOOR_FEET = CAR_BOT - 4; // the train's floor, level with the doorway
+  function farTrain(ctx, x, color, open, s) {
+    const TOP = CAR_TOP, BOT = CAR_BOT, night = s.dark > 0.3;
+    const glass = night ? "#ffe9a8" : "#33435e", inside = night ? "#f5e6b0" : "#3a3f4c";
+    for (let i = 0; i < 3; i++) {
+      const x0 = Math.round(x + i * (CAR + 2));
+      if (x0 > SW || x0 + CAR < 0) continue;
+      rect(ctx, x0, TOP, CAR, BOT - TOP, "#dfe3e8");
+      rect(ctx, x0 + 1, TOP - 2, CAR - 2, 2, "#b9c0c8");
+      rect(ctx, x0, TOP, CAR, 1, "#f4f6f8");
+      rect(ctx, x0, TOP + 3, CAR, 2, color);
+      rect(ctx, x0, 70, CAR, 5, color);
+      for (const [wx, ww] of [[3, 9], [42, 16], [88, 16], [134, 4]]) {
+        rect(ctx, x0 + wx, 34, ww, 24, glass);
+        if (!night) for (let k = 0; k < 8; k++) px(ctx, x0 + wx + 2 + k, 55 - k, "#5c6f92");
+      }
+      for (const dx of CAR_DOORS) {
+        const d = x0 + dx, h = BOT - 4 - DOOR_TOP;
+        if (open) {
+          rect(ctx, d, DOOR_TOP, DOOR_W, h, inside);
+          rect(ctx, d, DOOR_TOP + h - 2, DOOR_W, 2, night ? "#d8c890" : "#2a2e38"); // floor
+          rect(ctx, d - 6, DOOR_TOP, 6, h, "#c7cdd4");
+          rect(ctx, d + DOOR_W, DOOR_TOP, 6, h, "#c7cdd4");
+        } else {
+          rect(ctx, d, DOOR_TOP, DOOR_W, h, "#cfd5dc");
+          rect(ctx, d + DOOR_W / 2, DOOR_TOP, 1, h, "#9aa2ab");
+          rect(ctx, d + 3, 34, 5, 18, glass);
+          rect(ctx, d + 14, 34, 5, 18, glass);
+        }
+      }
+      rect(ctx, x0, BOT - 4, CAR, 4, "#5d6066");
+      if (i === 0) {
+        // the cab: a sloped nose, front window, line colour and headlight
+        for (let y = TOP; y < BOT; y++) {
+          const cut = Math.max(0, 8 - (y - TOP));
+          rect(ctx, x0 - 5 + cut, y, 5 - cut, 1, "#dfe3e8");
+        }
+        rect(ctx, x0 - 4, 34, 4, 22, glass);
+        rect(ctx, x0 - 5, 70, 5, 5, color);
+        rect(ctx, x0 - 5, 80, 2, 3, night ? "#fff6c0" : "#f4e7a0");
+      }
+    }
+  }
+
+  // Lit things on the platform, drawn over the night tint: board, sign, vending machine, lamps.
+  function stationLights(ctx, t, leg, p) {
+    // departures: the train due next, then the two after it, with real clock times
+    const now = Date.now();
+    for (let i = 0; i < 3; i++) {
+      const [kind, col] = service(leg + i), dest = at(leg + 2 + i)[1], y = 19 + i * 7;
+      text(ctx, kind, 106, y, col);
+      text(ctx, dest, 142, y, "#ffd27a");
+      const here = i === 0 && p >= ARRIVE;
+      text(ctx, here ? (t % 8 < 5 ? "NOW" : "") : hhmm(new Date(now + DOORS - p + [0, 7, 16][i] * 60000)), 182, y, "#ffd27a");
+    }
+    const [kind] = service(leg), msg = `KORITSU LINE  -  ${kind} FOR ${at(leg + 2)[1]}  -  PLEASE STAND BEHIND THE YELLOW LINE  -  `;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(105, 39, 98, 5);
+    ctx.clip();
+    text(ctx, msg, 203 - (Math.floor(tf) % (textWidth(msg) + 98)), 39, "#ff9a3c");
+    ctx.restore();
+
+    // the station sign: name, reading, and the stations either side
+    const i = ((leg % ROUTE.length) + ROUTE.length) % ROUTE.length, [kj, name] = ROUTE[i];
+    const x0 = 230, y0 = 62, w = 80;
+    rect(ctx, x0 - 1, y0 - 1, w + 2, 32, "#8a8f99");
+    rect(ctx, x0, y0, w, 30, "#f6f7f9");
+    const k = kanjiGlyph(kj, 12, "#22252c");
+    ctx.drawImage(k.c, Math.round(x0 + (w - k.w) / 2), y0 + 1);
+    text(ctx, name, Math.round(x0 + (w - textWidth(name)) / 2), y0 + 16, "#22252c");
+    rect(ctx, x0, y0 + 23, w, 7, LINE);
+    text(ctx, "<" + at(i - 1)[1], x0 + 2, y0 + 24, "#ffffff");
+    const next = at(i + 1)[1] + ">";
+    text(ctx, next, x0 + w - 2 - textWidth(next), y0 + 24, "#ffffff");
+
+    // vending machine
+    rect(ctx, 14, 80, 32, 48, "#c8323c");
+    rect(ctx, 14, 80, 32, 2, "#e0525a");
+    rect(ctx, 44, 80, 2, 48, "#9a2430");
+    rect(ctx, 17, 84, 26, 22, "#f4efe6");
+    const drinks = ["#3fae5a", "#f2a65a", "#5b8cff", "#e0484d", "#f2d04a", "#8a5ab0"];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 6; c++) {
+      rect(ctx, 18 + c * 4, 85 + r * 7, 3, 4, drinks[(c + r * 2) % 6]);
+      px(ctx, 19 + c * 4, 90 + r * 7, "#ff5040");
+    }
+    rect(ctx, 18, 108, 14, 4, "#2a2228");
+    if (t % 16 < 8) px(ctx, 20, 109, "#7bff8a");
+    rect(ctx, 36, 108, 4, 6, "#d8d8d8");
+    rect(ctx, 18, 117, 24, 6, "#2a2228");
+
+    // fluorescent lamps under the canopy
+    for (const x of [24, 134, 250]) rect(ctx, x, 12, 22, 2, "#b8f5dc");
+  }
+
+  // Cherry petals drifting across the platform.
+  function petals(ctx, tf) {
+    for (let i = 0; i < 9; i++) {
+      const p = (tf * 0.8 + i * 41) % 170;
+      const x = Math.round((i * 67 + p * 0.9 + Math.sin(p / 8 + i) * 5) % SW), y = Math.round(p * 0.8 - 6);
+      if (y > 0 && y < 132) px(ctx, x, y, i % 2 ? "#ffd6e2" : "#f392b2");
+    }
+  }
+
+  // Inside the train: the LED panel over the window announcing the next stop.
+  function nextStop(ctx, t, leg, p) {
+    const [kind] = service(leg), next = at(leg + 1)[1];
+    rect(ctx, 198, 6, 104, 11, "#3a3f4a");
+    rect(ctx, 199, 7, 102, 9, "#111318");
+    const msg = p > LEG - 6000 ? `ARRIVING ${next}` : Math.floor(t / 24) % 2 ? `NEXT ${next}` : `${kind} FOR ${at(leg + 2)[1]}`;
+    text(ctx, msg, 202, 9, "#ffa040");
+  }
+
   // Off-screen layer the size of the scene.
   function layer() {
     const c = document.createElement("canvas");
@@ -765,7 +1165,7 @@ window.koritsuScene = (() => {
   ];
   const IDLE_TICKS = IDLE.reduce((n, seg) => n + seg[1], 0);
 
-  function strolling(ctx, t, tf, f) {
+  function strolling(ctx, t, tf, f, feet = DOCK_TOP) {
     let p = tf % IDLE_TICKS, seg = IDLE[0];
     for (seg of IDLE) {
       if (p < seg[1]) break;
@@ -774,10 +1174,29 @@ window.koritsuScene = (() => {
     const [what, len, from, to, right] = seg;
     const x = from + ((to - from) * p) / len; // glides at the redraw rate, not 8 fps
     if (what !== "walk" && what !== "stand" && f.anims[what]) {
-      return drawAnim(ctx, f, what, frameAt(anims[what], p * TICK), x, DOCK_TOP, right);
+      return drawAnim(ctx, f, what, frameAt(anims[what], p * TICK), x, feet, right);
     }
     const img = what === "walk" ? f.frames[t % FRAMES] : t % 48 === 47 ? f.shut : f.frames[0];
-    drawFacing(ctx, img, x, DOCK_TOP, right);
+    drawFacing(ctx, img, x, feet, right);
+  }
+
+  // Where she is on the platform `p` ms into the wait while commuting: stepping off, walking to
+  // the bench, sitting, walking to the next train's door, hopping on. Null once she's aboard.
+  function onPlatform(p) {
+    const lerp = (a, b, u) => a + (b - a) * Math.min(1, Math.max(0, u));
+    if (p < OFF) return { door: true, x: DOOR_X, y: DOOR_FEET, right: false };
+    if (p < DOWN) return { hop: (p - OFF) / (DOWN - OFF), x: DOOR_X, y: lerp(DOOR_FEET, PLATFORM_FEET, (p - OFF) / (DOWN - OFF)), right: false };
+    if (p < SEATED) return { walk: true, x: lerp(DOOR_X, BENCH_X, (p - DOWN) / (SEATED - DOWN)), y: PLATFORM_FEET, right: false };
+    if (p < STAND) return { sit: true };
+    if (p < HOP) return { walk: true, x: lerp(BENCH_X, DOOR_X, (p - STAND) / (HOP - STAND)), y: PLATFORM_FEET, right: true };
+    if (p < ON) return { hop: (p - HOP) / (ON - HOP), x: DOOR_X, y: lerp(PLATFORM_FEET, DOOR_FEET, (p - HOP) / (ON - HOP)), right: true };
+    if (p < SHUT) return { door: true, x: DOOR_X, y: DOOR_FEET, right: true };
+    return null;
+  }
+  function walker(ctx, t, f, w) {
+    const hop = anims.hopping;
+    if (w.hop !== undefined && hop && f.anims.hopping) return drawAnim(ctx, f, "hopping", frameAt(hop, w.hop * hop.total, true), w.x, w.y, w.right);
+    drawFacing(ctx, w.walk ? f.frames[t % FRAMES] : f.frames[0], w.x, w.y, w.right);
   }
 
   // One frame of an extra animation, feet at (cx, feetY).
@@ -802,9 +1221,9 @@ window.koritsuScene = (() => {
 
   // Productive: sitting on the end of the dock facing the water, legs swinging over the edge,
   // both hands on the rod (or a book). Coordinates convert from frame 0 with sx = cx + 32 - x.
-  function sitting(ctx, t, f, hold) {
+  function sitting(ctx, t, f, hold, cx = 172, seat = DOCK_TOP) {
     if (!f.sit) return;
-    const cx = 172, top = DOCK_TOP + 3 - HEM;
+    const top = seat + 3 - HEM;
     const sx = (x) => cx + FW / 2 - x, sy = (y) => top + y;
     // legs first so the hakama hem overlaps them; each swings opposite the other
     const SWING = [0, 1, 2, 1, 0, -1, -2, -1];
@@ -820,10 +1239,11 @@ window.koritsuScene = (() => {
       ctx.restore();
     });
     const blink = t % 48 === 47;
+    const body = hold === "phone" ? (blink ? f.sitPhoneShut : f.sitPhone) : blink ? f.sitShut : f.sit;
     ctx.save();
     ctx.translate(cx, top);
     ctx.scale(-1, 1);
-    ctx.drawImage(blink ? f.sitShut : f.sit, -FW / 2, 0);
+    ctx.drawImage(body, -FW / 2, 0);
     ctx.restore();
 
     const hx = sx(GRIP.x + 2), hy = sy(GRIP.y + 1);
@@ -859,6 +1279,21 @@ window.koritsuScene = (() => {
         const fx = 232 + jump * 4, fyy = 130 - Math.round(18 * Math.sin((jump / 12) * Math.PI));
         paint(ctx, ["..ffff..", ".ffffff.", "ffffffff", ".ffffff.", "..f..f.."], fx, fyy, { f: "#f2a65a" });
       }
+    } else if (hold === "phone") {
+      // Both hands on the phone in front of her chest; the feed scrolls.
+      const px0 = sx(PHONE.x + PHONE.w - 1) - 1, py0 = sy(PHONE.y), scroll = Math.floor(t / 2) % 4;
+      rect(ctx, px0, py0, PHONE.w, PHONE.h, "#1b1528");
+      for (let y = 0; y < PHONE.h - 2; y++) {
+        rect(ctx, px0 + 1, py0 + 1 + y, PHONE.w - 2, 1, ["#ff8fb1", "#8fd8ff", "#ffffff", "#ffd27a"][(y + scroll) % 4]);
+      }
+      ctx.save();
+      ctx.translate(cx, top);
+      ctx.scale(-1, 1);
+      for (const gr of [GRIP, PHONE_GRIP]) ctx.drawImage(body, gr.x, gr.y, gr.w, gr.h, -FW / 2 + gr.x, gr.y, gr.w, gr.h);
+      ctx.restore();
+      ctx.globalAlpha = 0.1;
+      disc(ctx, px0 + 2, py0 - 2, 9, "#8fd8ff");
+      ctx.globalAlpha = 1;
     } else {
       const flip = Math.floor(t / 16) % 2;
       const book = ["RRRRRRRRRRRR", "RwwwwRRwwwwR", flip ? "RwXwwRRwwXwR" : "RwwXwRRwXwwR", "RwwwwRRwwwwR", "RwXwwRRwwXwR", "RRRRRRRRRRRR"];
@@ -879,10 +1314,10 @@ window.koritsuScene = (() => {
     return settled ? [160, BED_TOP - 44] : null;
   }
 
-  // In bed: head and ears upright on the pillow, peeking over the blanket, turned toward the
-  // phone. (Turning the whole sprite on its side made the head unreadable at this size.)
-  function lying(ctx, t, f, mode) {
-    const img = mode === "sleep" ? f.shut : f.frames[0];
+  // Asleep in bed: head and ears upright on the pillow, peeking over the blanket. (Turning the
+  // whole sprite on its side made the head unreadable at this size.)
+  function lying(ctx, f) {
+    const img = f.shut;
     if (!img) return;
     ctx.save();
     ctx.translate(100 + 48, 62);
@@ -901,14 +1336,21 @@ window.koritsuScene = (() => {
   const glow = layer(); // stars, sun and moon, cut out wherever the land is
   // The static background, redrawn only when the sky's colour (or the room) changes.
   const bg = { key: "", layers: [] };
-  function background(indoors, s) {
-    const key = `${indoors}|${s.top}|${s.bottom}|${s.rain}|${s.dark.toFixed(2)}|${Math.floor(s.hour * 4)}`;
+  function background(scene, s) {
+    const key = `${scene}|${s.top}|${s.bottom}|${s.rain}|${s.dark.toFixed(2)}|${Math.floor(s.hour * 4)}`;
     if (bg.key !== key) {
-      bg.layers = indoors ? [bedroomLayer(s)] : lakeLayers(s);
+      bg.layers =
+        scene === "bedroom" ? [bedroomLayer(s)]
+        : scene === "train" ? trainLayers(s)
+        : scene.startsWith("station") ? stationLayers(s, +scene.split("-")[1])
+        : lakeLayers(s);
       bg.key = key;
     }
     return bg.layers;
   }
+
+  let lastStation = 0, routeStart = 0; // where she last got off; where the next commute starts
+  const idx = (i) => ((i % ROUTE.length) + ROUTE.length) % ROUTE.length;
 
   function draw(canvas) {
     const ctx = canvas.getContext("2d");
@@ -916,19 +1358,48 @@ window.koritsuScene = (() => {
     ctx.clearRect(0, 0, SW, SH);
     const f = frames(state.character);
     const now = new Date();
-    const rain = rainAt(state.weather, now);
-    const s = sky(FIXED_HOUR[state.sky] ?? now.getHours() + now.getMinutes() / 60, rain);
-    const indoors = state.mood === "wasted" || state.mood === "break";
+    const wet = rainAt(state.weather, now);
+    const snow = !!wet && (state.weather === "snow" || (state.weather === "auto" && [11, 0, 1].includes(now.getMonth())));
+    const rain = wet && !snow;
+    const s = sky(FIXED_HOUR[state.sky] ?? now.getHours() + now.getMinutes() / 60, wet, snow);
     const since = clock - moodAt;
+    const idle = state.mood === "idle";
+    // Idle, she stays where the last thing you logged happened.
+    const place = idle ? ({ wasted: "wasted", break: "break" }[state.last] ?? "productive") : state.mood;
+    // Wasting time is a commute: a wait on the platform, then the ride to the next station.
+    const riding = state.mood === "wasted";
+    const leg = riding ? Math.floor(since / LEG) : 0, p = riding ? since % LEG : since % WAIT;
+    const stop = riding ? routeStart + leg : lastStation;
+    if (riding) lastStation = idx(stop + (p >= WAIT ? 1 : 0));
+    const scene = place === "wasted" ? (p < WAIT ? `station-${idx(stop)}` : "train") : place === "break" ? "bedroom" : "lake";
+    const indoors = scene === "bedroom", station = scene.startsWith("station");
+    const where = riding && station ? onPlatform(p) : null;
     const napAnim = state.mood === "break" && !!f.anims["to-bed"];
     const outfit = state.character.outfit || "#e1262b";
     const breath = state.mood === "break" ? Math.floor(t / 8) % 2 : 0;
 
     if (indoors) {
-      ctx.drawImage(background(true, s)[0], 0, 0);
-      if (napAnim) blanket(ctx, outfit, 0, true); // she naps on top of the covers
+      ctx.drawImage(background(scene, s)[0], 0, 0);
+      if (napAnim || idle) blanket(ctx, outfit, 0, true); // a made bed (she naps on top of the covers)
+    } else if (scene === "train") {
+      const [outside, car] = background(scene, s);
+      ctx.drawImage(outside, 0, 0);
+      passing(ctx, tf, s, rain, snow);
+      ctx.drawImage(car, 0, 0);
+      straps(ctx, tf);
+      nextStop(ctx, t, stop, p);
+    } else if (station) {
+      const [far, plat] = background(scene, s);
+      ctx.drawImage(far, 0, 0);
+      clouds(ctx, tf, s);
+      // the train she came on pulls out; later the next one pulls in and opens its doors
+      if (p < GONE) farTrain(ctx, TRAIN_STOP - 480 * Math.max(0, (p - LEAVE) / (GONE - LEAVE)) ** 2, service(stop - 1)[1], p < DOWN, s);
+      else if (p >= ARRIVE) farTrain(ctx, TRAIN_STOP + 480 * (1 - Math.min(1, (p - ARRIVE) / (DOORS - ARRIVE))) ** 2, service(stop)[1], p >= DOORS && p < SHUT, s);
+      if (where?.door) walker(ctx, t, f, where); // in the doorway, behind the platform
+      ctx.drawImage(plat, 0, 0);
+      if (!s.rain) petals(ctx, tf);
     } else {
-      const [skyLayer, land] = background(false, s);
+      const [skyLayer, land] = background(scene, s);
       ctx.drawImage(skyLayer, 0, 0);
       clouds(ctx, tf, s);
       ctx.drawImage(land, 0, 0);
@@ -942,14 +1413,20 @@ window.koritsuScene = (() => {
       if (hop && f.anims.hopping && since < hop.total) drawAnim(ctx, f, "hopping", frameAt(hop, since), 172, DOCK_TOP, true);
       else sitting(ctx, t, f, state.productive === "reading" ? "book" : "rod");
     } else if (napAnim) zz = napping(ctx, t, f, since);
-    else if (indoors) lying(ctx, t, f, state.mood === "break" ? "sleep" : "phone");
-    else strolling(ctx, t, tf, f);
+    else if (state.mood === "break") lying(ctx, f);
+    else if (scene === "train") sitting(ctx, t, f, "phone", SEATS[1] + 22, SEAT_TOP + (t % 24 === 0 ? 1 : 0)); // the odd bump on the rails
+    else if (where?.sit) sitting(ctx, t, f, "phone", BENCH_X, 110);
+    else if (where && !where.door) walker(ctx, t, f, where);
+    else if (station && !riding) strolling(ctx, t, tf, f, PLATFORM_FEET);
+    else if (indoors) strolling(ctx, t, tf, f, 140);
+    else if (!station) strolling(ctx, t, tf, f);
 
     if (indoors) {
-      if (!napAnim) blanket(ctx, outfit, breath, false);
+      if (!napAnim && !idle) blanket(ctx, outfit, breath, false);
       lampGlow(ctx, s);
       if (rain) windowRain(ctx, tf);
-    } else {
+      if (snow) snowfall(ctx, tf, s, [25, 15, 68, 58], 14);
+    } else if (scene === "lake") {
       // Night dims the whole picture evenly; stars, sun, moon and fireflies go on top to shine.
       if (s.dark > 0.01) {
         ctx.globalCompositeOperation = "multiply";
@@ -962,14 +1439,36 @@ window.koritsuScene = (() => {
       stars(g, t, 0, SW, 0, 72, s.dark * (1 - s.rain));
       celestial(g, s, 0, SW, 0, 92);
       g.globalCompositeOperation = "destination-out";
-      g.drawImage(background(false, s)[1], 0, 0);
+      g.drawImage(background(scene, s)[1], 0, 0);
       g.globalCompositeOperation = "source-over";
       ctx.drawImage(glow, 0, 0);
       fireflies(ctx, tf, s);
       if (rain) rainfall(ctx, tf, s);
+      if (snow) snowfall(ctx, tf, s);
+    } else if (station) {
+      if (s.dark > 0.01) {
+        ctx.globalCompositeOperation = "multiply";
+        ctx.fillStyle = mix("#ffffff", "#2c3570", s.dark * 0.5);
+        ctx.fillRect(0, 0, SW, SH);
+        ctx.globalCompositeOperation = "source-over";
+      }
+      stationLights(ctx, t, stop, p);
+      if (rain) rainfall(ctx, tf, s);
+      if (snow) snowfall(ctx, tf, s);
     }
-    if (state.mood === "wasted") phone(ctx, t);
     if (state.mood === "break" && (zz || !napAnim)) zzz(ctx, t, ...(zz || [148, 62]));
+  }
+
+  // Snowflakes drifting down and swaying, over the whole scene or inside a window [x, y, w, h].
+  // `wind` pushes them sideways (past a moving train's window).
+  function snowfall(ctx, tf, s, [x0, y0, w, h] = [0, 0, SW, SH], n = 80, wind = 0) {
+    ctx.fillStyle = mix("#ffffff", "#b8c0e0", s.dark * 0.6);
+    for (let i = 0; i < n; i++) {
+      const y = y0 + ((i * 37 + tf * (0.6 + (i % 3) * 0.3)) % h);
+      const x = x0 + ((((i * 71 + Math.sin(tf / 9 + i) * 4 - tf * wind) % w) + w) % w);
+      const size = i % 5 === 0 ? 2 : 1;
+      ctx.fillRect(Math.round(x), Math.round(y), size, size);
+    }
   }
 
   // Slanted streaks falling across the whole scene, with rings where drops hit the water.
@@ -1003,27 +1502,6 @@ window.koritsuScene = (() => {
       const y = 18 + ((i * 19 + Math.floor(t * (3 + (i % 3)))) % 52);
       ctx.globalAlpha = 0.45;
       ctx.fillRect(x, y, 1, 3);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  // A hand out of the blanket holds the phone up in front of the face; the feed scrolls.
-  function phone(ctx, t) {
-    const flick = Math.floor(t / 3) % 2;
-    ctx.fillStyle = "#fce1c8";
-    ctx.fillRect(160, 82 - flick, 6, 12);
-    ctx.fillStyle = "#1b1528";
-    ctx.fillRect(152, 56 - flick, 16, 28);
-    const scroll = (t * 3) % 24;
-    for (let y = 0; y < 24; y++) {
-      const k = Math.floor((y + scroll) / 2) % 6;
-      ctx.fillStyle = k === 0 ? "#ff8fb1" : k === 3 ? "#ffffff" : k === 5 ? "#ffd27a" : "#8fd8ff";
-      ctx.fillRect(154, 58 - flick + y, 12, 1);
-    }
-    ctx.fillStyle = "#8fd8ff";
-    for (const [x, y, w, h, a] of [[100, 50, 74, 46, 0.05], [112, 56, 56, 36, 0.07]]) {
-      ctx.globalAlpha = a;
-      ctx.fillRect(x, y - flick, w, h);
     }
     ctx.globalAlpha = 1;
   }
@@ -1069,7 +1547,10 @@ window.koritsuScene = (() => {
       draw(canvas);
     },
     update(next) {
-      if (next.mood && next.mood !== state.mood) moodAt = clock; // restart the transition animations
+      if (next.mood && next.mood !== state.mood) {
+        moodAt = clock; // restart the transition animations
+        if (next.mood === "wasted") routeStart = lastStation; // the commute carries on from where she got off
+      }
       state = { ...state, ...next, character: next.character ?? state.character };
       redrawAll();
     },

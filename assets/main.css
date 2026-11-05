@@ -158,6 +158,13 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 .hud-pill.productive { color: var(--productive); }
 .hud-pill.wasted { color: var(--wasted); }
 .hud-pill.break { color: var(--break); }
+/* The status pill doubles as "switch activity" while tracking. */
+.hud-pill.switch { pointer-events: auto; cursor: pointer; transition: background .15s, color .4s; }
+.hud-pill.switch:hover { background: rgba(30, 26, 46, .88); }
+.hud-pill .pill-text { overflow: hidden; text-overflow: ellipsis; }
+.switch-icon { flex: none; padding-left: 6px; margin-left: 2px; border-left: 1px solid rgba(255, 255, 255, .2); color: #fff; opacity: .8; }
+.switch-btn { margin-left: 6px; padding: 0 6px; border-radius: 5px; background: var(--surface-2); color: var(--text); font-size: 11px; letter-spacing: 0; }
+.switch-btn:hover { background: color-mix(in srgb, var(--text) 18%, transparent); }
 .hud-clock { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; text-transform: none; font-variant-numeric: tabular-nums; }
 .nudge { font-size: 12px; line-height: 1.6; color: color-mix(in srgb, var(--text) 75%, transparent); }
 .overview .nudge { padding-top: 12px; border-top: 1px solid var(--border); }
