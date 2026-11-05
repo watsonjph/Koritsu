@@ -1,0 +1,89 @@
+{
+  "frames": {
+    "fox-girl-character-animation-8ddf-1.png": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    },
+    "fox-girl-character-animation-8ddf-2.png": {
+      "frame": {
+        "x": 64,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    },
+    "fox-girl-character-animation-8ddf-3.png": {
+      "frame": {
+        "x": 128,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    },
+    "fox-girl-character-animation-8ddf-4.png": {
+      "frame": {
+        "x": 0,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    },
+    "fox-girl-character-animation-8ddf-5.png": {
+      "frame": {
+        "x": 64,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    },
+    "fox-girl-character-animation-8ddf-6.png": {
+      "frame": {
+        "x": 128,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    },
+    "fox-girl-character-animation-8ddf-7.png": {
+      "frame": {
+        "x": 0,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    },
+    "fox-girl-character-animation-8ddf-8.png": {
+      "frame": {
+        "x": 64,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "duration": 125
+    }
+  },
+  "meta": {
+    "app": "sprite-ai.art",
+    "version": "1.0",
+    "image": "fox-girl-character-animation-8ddf.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 192,
+      "h": 192
+    },
+    "scale": "1",
+    "fps": 8,
+    "frameCount": 8
+  }
+}

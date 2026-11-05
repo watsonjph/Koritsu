@@ -37,6 +37,12 @@ const CSS: &str = include_str!("../assets/main.css");
 const SOUND_JS: &str = include_str!("../assets/sound.js");
 const SCENE_JS: &str = include_str!("../assets/scene.js");
 const SHEET_PNG: &[u8] = include_bytes!("../assets/character.png");
+/// Extra animations: (name, sprite sheet, atlas). Names match `ANIM_NAMES` in scene.js.
+const ANIMS: [(&str, &[u8], &str); 3] = [
+    ("eating", include_bytes!("../assets/senko/eating.png"), include_str!("../assets/senko/eating.json")),
+    ("to-bed", include_bytes!("../assets/senko/to-bed.png"), include_str!("../assets/senko/to-bed.json")),
+    ("hopping", include_bytes!("../assets/senko/hopping.png"), include_str!("../assets/senko/hopping.json")),
+];
 const TRAY_SHOW: &str = "koritsu-show";
 const TRAY_QUIT: &str = "koritsu-quit";
 
@@ -107,8 +113,14 @@ fn main() {
     let font = |b: &[u8], w: u32| {
         format!("@font-face{{font-family:'JetBrains Mono';font-weight:{w};src:url(data:font/woff2;base64,{})}}", STANDARD.encode(b))
     };
+    // { name: { src: data URL, atlas: {...} } } for scene.js's extra animations
+    let anims = ANIMS
+        .iter()
+        .map(|(name, png, atlas)| format!("\"{name}\":{{\"src\":\"data:image/png;base64,{}\",\"atlas\":{atlas}}}", STANDARD.encode(png)))
+        .collect::<Vec<_>>()
+        .join(",");
     let head = format!(
-        "<style>{}{}{CSS}</style><script>{SOUND_JS}</script><script>window.KORITSU_SHEET=\"data:image/png;base64,{}\";</script><script>{SCENE_JS}</script>",
+        "<style>{}{}{CSS}</style><script>{SOUND_JS}</script><script>window.KORITSU_SHEET=\"data:image/png;base64,{}\";window.KORITSU_ANIMS={{{anims}}};</script><script>{SCENE_JS}</script>",
         font(include_bytes!("../assets/fonts/jetbrains-mono-latin-400-normal.woff2"), 400),
         font(include_bytes!("../assets/fonts/jetbrains-mono-latin-700-normal.woff2"), 700),
         STANDARD.encode(SHEET_PNG),
