@@ -143,7 +143,7 @@ pub fn SettingsTab() -> Element {
                     // Where she goes in each mode: the default moves between places.
                     div { class: "set-row stack",
                         span { "{t.when_productive}" }
-                        div { class: "seg small", style: "--i: {ProductivePlace::ALL.iter().position(|p| *p == s.character.productive_place).unwrap_or(0)}; --n: 6",
+                        div { class: "seg small", style: "--i: {ProductivePlace::ALL.iter().position(|p| *p == s.character.productive_place).unwrap_or(0)}; --n: 7",
                             span { class: "seg-pill" }
                             for (i, place) in ProductivePlace::ALL.into_iter().enumerate() {
                                 button {

@@ -3,8 +3,8 @@
 // the sprite is drawn at full detail on top.
 //
 // Moods: idle (strolling where she last was), productive (travelling: fishing at the lake, then
-// studying at a konbini under Mt Fuji, on a Tokyo street, in Akihabara and out in the
-// countryside), wasted (on a train,
+// studying in the countryside, by a river, at a konbini under Mt Fuji, on a Tokyo street and in
+// Akihabara), wasted (on a train,
 // doomscrolling), break (asleep). The outdoor sky follows the local time of day.
 window.koritsuScene = (() => {
   const W = 160, H = 100, S = 2; // scene size in double pixels: 320x200 drawn
@@ -903,6 +903,13 @@ window.koritsuScene = (() => {
       FONT[ch]?.split("/").forEach((row, r) => [...row].forEach((k, c) => k === "#" && ctx.fillRect(x + i * 4 + c, y + r, 1, 1)));
     });
   }
+  // The 3×5 font at `k` times the size, for big signs.
+  function bigText(ctx, str, x, y, color, k = 2) {
+    ctx.fillStyle = color;
+    [...str.toUpperCase()].forEach((ch, i) => {
+      FONT[ch]?.split("/").forEach((row, r) => [...row].forEach((c, cc) => c === "#" && ctx.fillRect(x + (i * 4 + cc) * k, y + r * k, k, k)));
+    });
+  }
   // ponytail: kanji come from the system's Japanese font (every Windows and macOS has one; a bare
   // Linux without CJK fonts shows boxes). Hand-drawn glyphs if that matters.
   const glyphs = new Map();
@@ -1540,9 +1547,12 @@ window.koritsuScene = (() => {
     SKYLINE.push([x, w, 40 + Math.floor(hash(n * 4 + 5) * 60)]);
     x += w + 1;
   }
-  const AKIBA_WINDOWS = []; // lit at night: [x, y]
-  for (const [x0, x1, y0, y1] of [[80, 136, 104, 176], [144, 210, 98, 140], [216, 258, 46, 140]]) {
-    for (let y = y0; y < y1; y += 7) for (let x = x0; x < x1; x += 6) AKIBA_WINDOWS.push([x, y]);
+  // Office blocks between the store and the railway: [x, width, top, wall colour].
+  const OFFICES = [[78, 62, 98, "#a0867a"], [140, 74, 92, "#8e6e60"]];
+  const AKIBA_WINDOWS = []; // every pane, lit at random at night: [x, y, w, h]
+  for (let y = 44; y < 170; y += 18) for (let x = 4; x < 56; x += 6) AKIBA_WINDOWS.push([x, y + 4, 5, 9]);
+  for (const [x, w, top] of OFFICES) {
+    for (let y = top + 8; y < 168; y += 12) for (let wx = x + 4; wx + 5 <= x + w - 3; wx += 8) AKIBA_WINDOWS.push([wx, y, 5, 7]);
   }
 
   function akibaLayers(s) {
@@ -1564,13 +1574,40 @@ window.koritsuScene = (() => {
     rect(b, 262, 6, 2, 170, "#566a80");
     rect(b, 216, 40, 44, 136, "#8a7470");
     for (let y = 44; y < 176; y += 7) rect(b, 216, y, 44, 2, "#76625e");
-    // the department store on the left, and the blocks between
-    rect(b, 0, 16, 78, 160, "#7a5e52");
-    for (let x = 4; x < 78; x += 10) rect(b, x, 20, 1, 156, "#6a5046");
-    rect(b, 0, 16, 78, 3, "#8e7064");
-    rect(b, 78, 98, 62, 78, "#a0867a");
-    rect(b, 140, 92, 74, 84, "#8e6e60");
-    for (const [x, y] of AKIBA_WINDOWS) rect(b, x, y, 4, 4, "#4a3a3a");
+    // the department store: floors of ribbon windows behind slim mullions, a parapet, a roof sign
+    rect(b, 0, 16, 78, 160, "#8a7468");
+    rect(b, 0, 40, 78, 4, "#6e564c");
+    rect(b, 0, 40, 78, 1, "#a08a7e");
+    for (let y = 44; y < 176; y += 18) {
+      rect(b, 0, y, 78, 2, "#6e564c");
+      rect(b, 2, y + 3, 56, 11, "#2c3440");
+      rect(b, 2, y + 3, 56, 1, "#4a5668");
+    }
+    for (const [x, y, w, h] of AKIBA_WINDOWS.slice(0, 63)) {
+      rect(b, x, y, w, h, "#3b4656");
+      px(b, x, y, "#6a7a8e");
+    }
+    rect(b, 76, 16, 2, 160, "#6e564c");
+    // the roof sign's frame
+    for (const x of [10, 64]) rect(b, x, 36, 3, 6, "#1e2a36");
+    rect(b, 2, 16, 74, 22, "#1e2a36");
+    // office blocks: slabs, framed windows, the odd air conditioner, a parapet
+    for (const [x, w, top, wall] of OFFICES) {
+      rect(b, x, top, w, 176 - top, wall);
+      rect(b, x, top, w, 2, mix(wall, "#ffffff", 0.18));
+      rect(b, x, top + 2, w, 1, mix(wall, "#000000", 0.25));
+      for (let y = top + 6; y < 176; y += 12) rect(b, x, y, w, 1, mix(wall, "#000000", 0.18));
+      rect(b, x + w - 1, top, 1, 176 - top, mix(wall, "#000000", 0.2));
+    }
+    for (const [i, [x, y, w, h]] of AKIBA_WINDOWS.slice(63).entries()) {
+      rect(b, x - 1, y - 1, w + 2, h + 2, "#5a4a46");
+      rect(b, x, y, w, h, "#3b4656");
+      px(b, x, y, "#6a7a8e");
+      if (hash(i * 3 + 1) > 0.82) {
+        rect(b, x - 1, y + h + 1, 6, 3, "#c9ccd4");
+        rect(b, x, y + h + 2, 4, 1, "#8f939e");
+      }
+    }
     // rooftop billboard frame and its legs
     for (const x of [156, 196]) rect(b, x, 86, 2, 8, "#3a3036");
     rect(b, 148, 58, 60, 28, "#3a3036");
@@ -1632,18 +1669,28 @@ window.koritsuScene = (() => {
 
   // Signs on the buildings behind the railway, and windows at night.
   function akibaBack(ctx, t, s) {
-    if (s.dark > 0.3) for (const [i, [x, y]] of AKIBA_WINDOWS.entries()) if (hash(i + 7) > 0.45) rect(ctx, x, y, 4, 4, "#ffd98a");
-    // department store: the KORI sign up top, a duty-free banner down its side
-    rect(ctx, 6, 22, 66, 18, "#24394a");
-    text(ctx, "KORI", 28, 26, "#ffffff");
-    foxMark(ctx, 14, 26);
-    text(ctx, "DEPT", 28, 33, "#f08a2a");
-    rect(ctx, 6, 48, 14, 76, "#fbf8f4");
-    [0x514d, 0x7a0e].forEach((code, i) => { // 免税, down the banner
-      const k = kanjiGlyph(cp(code), 9, "#c8323c");
-      ctx.drawImage(k.c, 13 - Math.round(k.w / 2), 51 + i * 10);
+    if (s.dark > 0.3) {
+      for (const [i, [x, y, w, h]] of AKIBA_WINDOWS.entries()) {
+        if (hash(i + 7) < 0.45) continue;
+        rect(ctx, x, y, w, h, i < 63 ? "#fff1c8" : "#ffd98a");
+        px(ctx, x, y, "#fffbe8");
+      }
+    }
+    // the department store's roof sign: fox emblem, KORI in big letters, DEPT STORE beneath
+    rect(ctx, 4, 18, 70, 18, "#24394a");
+    rect(ctx, 4, 18, 70, 1, "#3a5670");
+    foxMark(ctx, 8, 22);
+    bigText(ctx, "KORI", 22, 20, "#ffffff");
+    text(ctx, "DEPT STORE", 22, 31, "#f08a2a");
+    // a duty-free board down its side: 免税, TAX FREE
+    rect(ctx, 59, 48, 18, 84, "#c8323c");
+    rect(ctx, 60, 49, 16, 82, "#fbf8f4");
+    [0x514d, 0x7a0e].forEach((code, i) => {
+      const k = kanjiGlyph(cp(code), 13, "#c8323c");
+      ctx.drawImage(k.c, 68 - Math.round(k.w / 2), 52 + i * 16);
     });
-    ["T", "A", "X", "F", "R", "E", "E"].forEach((ch, i) => text(ctx, ch, 12, 70 + i * 7, "#2d4f8a"));
+    rect(ctx, 62, 86, 12, 1, "#e0b0b0");
+    for (const [i, w] of ["TAX", "FREE"].entries()) text(ctx, w, 68 - Math.floor(textWidth(w) / 2), 92 + i * 8, "#2d4f8a");
     // karaoke box sign, a book shop sign, a game banner
     rect(ctx, 82, 62, 56, 22, "#c8323c");
     rect(ctx, 84, 64, 52, 18, "#fbf8f4");
@@ -1694,162 +1741,317 @@ window.koritsuScene = (() => {
     }
   }
 
-  // ---------- Rural Japan: a lane under a big tree, a tram, an old shop (full 320×200) ----------
-  // Countryside houses: [x, width, roof top, floors].
-  const HOUSES = [[-8, 56, 58, 2], [50, 70, 40, 2], [124, 40, 76, 1]];
-  // Their shoji windows: [x, y, w, h].
-  const houseWindows = ([x, w, top, floors]) => {
+  // ---------- Rural Japan: a tram lane under a big tree, an old shop (full 320×200) ----------
+  // Small houses up the slope behind the tram line, hazed by distance: [x, width, roof top, ground].
+  const COTTAGES = [[26, 48, 52, 114], [80, 56, 60, 118], [140, 40, 70, 120]];
+  const cottageWindows = ([x, w, top]) => {
     const out = [];
-    const rows = floors === 2 ? [top + 18, top + 46] : [top + 20];
-    for (const y of rows) for (let k = x + 7; k + 12 <= x + w - 4; k += 18) out.push([k, y, 12, 12]);
+    for (let k = x + 4; k + 8 <= x + w - 3; k += 14) out.push([k + 1, top + 13, 6, 6]);
     return out;
   };
-  function house(g, hs) {
-    const [x, w, top, floors] = hs, wall = top + 12, ground = 150;
-    rect(g, x, wall, w, ground - wall, "#e9e3d6");
-    for (let k = x; k < x + w; k += 18) rect(g, k, wall, 2, ground - wall, "#5a4636");
-    rect(g, x + w - 2, wall, 2, ground - wall, "#5a4636");
-    rect(g, x, wall, w, 2, "#5a4636");
-    if (floors === 2) {
-      // a little tiled eave between the floors
-      const mid = wall + 28;
-      rect(g, x - 4, mid - 4, w + 8, 3, "#4c5160");
-      rect(g, x - 4, mid - 1, w + 8, 1, "#2e313b");
+  function cottage(g, [x, w, top, gy], haze, sb) {
+    const h = (c) => mix(c, sb, haze);
+    const RH = 9, wall = top + RH, split = wall + 14;
+    // upper floor: plaster between timber posts, small shoji windows
+    rect(g, x, wall, w, split - wall, h("#e6e0d2"));
+    for (let k = x; k <= x + w - 2; k += 14) rect(g, k, wall, 2, split - wall, h("#5a4434"));
+    rect(g, x + w - 2, wall, 2, gy - wall, h("#5a4434"));
+    for (const [wx, wy, ww, wh] of cottageWindows([x, w, top])) {
+      rect(g, wx - 1, wy - 1, ww + 2, wh + 2, h("#5a4434"));
+      rect(g, wx, wy, ww, wh, h("#efe8d6"));
+      rect(g, wx + 3, wy, 1, wh, h("#b4a58c"));
+      rect(g, wx, wy + 3, ww, 1, h("#b4a58c"));
     }
-    for (const [wx, wy, ww, wh] of houseWindows(hs)) {
-      rect(g, wx - 1, wy - 1, ww + 2, wh + 2, "#5a4636");
-      rect(g, wx, wy, ww, wh, "#f1ead8");
-      for (let k = wx + 3; k < wx + ww; k += 4) rect(g, k, wy, 1, wh, "#a8977e");
-      rect(g, wx, wy + Math.floor(wh / 2), ww, 1, "#a8977e");
+    // a tiled hood, then the dark plank ground floor
+    rect(g, x - 3, split - 2, w + 6, 2, h("#4c5262"));
+    rect(g, x - 3, split, w + 6, 1, h("#2c303a"));
+    rect(g, x, split + 1, w, gy - split - 1, h("#5e4636"));
+    for (let k = x; k < x + w; k += 3) rect(g, k, split + 1, 1, gy - split - 1, h("#4e3a2c"));
+    // hipped tile roof
+    for (let r = 0; r < RH; r++) {
+      const inset = RH - 1 - r, rx = x - 4 + inset, rw = w + 8 - inset * 2;
+      rect(g, rx, top + r, rw, 1, h(r % 3 === 1 ? "#5d6474" : "#4c5262"));
+      for (let k = rx + (r % 2); k < rx + rw; k += 3) px(g, k, top + r, h("#3c4150"));
     }
-    // hipped tile roof: a short ridge widening to overhanging eaves
-    for (let r = 0; r < 12; r++) {
-      const inset = Math.round((11 - r) * 1.3);
-      rect(g, x - 6 + inset, top + r, w + 12 - inset * 2, 1, r % 3 === 2 ? "#3a3e4a" : "#4c5160");
-    }
-    rect(g, x - 6 + 14, top - 1, Math.max(4, w + 12 - 28), 2, "#2e313b");
-    rect(g, x - 7, top + 12, w + 14, 1, "#2e313b");
+    rect(g, x - 4 + RH - 1, top - 1, w + 8 - (RH - 1) * 2, 1, h("#2c303a"));
+    rect(g, x - 4, top + RH, w + 8, 1, h("#2c303a"));
   }
 
   function inakaLayers(s) {
     const sky = layer(), g = sky.getContext("2d");
-    bands(g, s.top, s.bottom, 0, 150, 7);
+    bands(g, s.top, s.bottom, 0, 140, 7);
     stars(g, 0, 0, SW, 0, 70, s.dark * (1 - s.rain));
-    celestial(g, s, 0, SW, 0, 60);
+    celestial(g, s, 0, SW, 0, 50);
 
     const back = layer(), b = back.getContext("2d");
-    // hills, then houses with tiled gable roofs
-    const hill = mix("#5f8a62", s.bottom, 0.35);
-    for (let x = 0; x < SW; x++) {
-      const h = Math.round(20 * noise(x / 34 + 2) + 8 * noise(x / 9));
-      rect(b, x, 104 - h, 1, h + 40, hill);
+    // a white apartment block up the hill, half behind the trees
+    const flat = mix("#e4e4e8", s.bottom, 0.25), flatLine = mix("#b8b8c0", s.bottom, 0.25);
+    rect(b, 72, 4, 50, 80, flat);
+    rect(b, 72, 4, 50, 2, flatLine);
+    for (let y = 12; y < 80; y += 14) {
+      rect(b, 72, y + 9, 50, 1, flatLine);
+      for (let x = 76; x < 118; x += 12) rect(b, x, y, 8, 7, mix("#7e8a9a", s.bottom, 0.25));
     }
-    for (const h of HOUSES) house(b, h);
-    // the utility pole with its vertical signs, and wires
-    rect(b, 22, 0, 6, 170, "#6e6a64");
-    rect(b, 23, 0, 1, 170, "#86827c");
-    rect(b, 12, 14, 26, 3, "#5a5650");
-    for (const [y0, sag] of [[16, 8], [22, 9]]) for (let x = 28; x < SW; x++) px(b, x, y0 + Math.round(sag * Math.sin(((x - 28) / 300) * Math.PI)), "#3a3834");
-    rect(b, 12, 40, 10, 44, "#fbf8f4");
-    rect(b, 28, 56, 10, 34, "#fbf8f4");
-    [0x7530, 0x4ee3].forEach((code, i) => { // 田代
-      const k = kanjiGlyph(cp(code), 8, "#22252c");
-      b.drawImage(k.c, 17 - Math.round(k.w / 2), 44 + i * 12);
-    });
-    const rent = kanjiGlyph(cp(0x8cb8), 8, "#c8323c"); // 貸
-    b.drawImage(rent.c, 33 - Math.round(rent.w / 2), 60);
-    // the tram's track
-    rect(b, 0, 146, SW, 6, "#6a645e");
-    rect(b, 0, 146, SW, 1, "#a8a29a");
+    // a wooded slope
+    for (let x = 0; x < SW; x++) {
+      const hgt = Math.round(26 * noise(x / 28 + 6) + 10 * noise(x / 7 + 1));
+      rect(b, x, 104 - hgt, 1, hgt + 30, mix("#3f7a4c", s.bottom, 0.3));
+    }
+    for (const [x, y, r] of [[8, 70, 14], [140, 66, 12], [176, 58, 16], [226, 72, 12]]) disc(b, x, y, r, mix("#356e40", s.bottom, 0.3), Math.round(r * 0.8));
+    for (const c of COTTAGES) cottage(b, c, 0.2, s.bottom);
+    // the tram's overhead wire and its stone embankment
+    for (let x = 0; x < SW; x++) px(b, x, 76 + Math.round(2 * Math.sin((x / SW) * Math.PI)), "#3a3834");
+    rect(b, 0, 130, SW, 12, "#8a8478");
+    for (let y = 133; y < 142; y += 4) rect(b, 0, y, SW, 1, "#76716a");
+    for (let x = 0; x < SW; x += 9) rect(b, x + ((x / 9) % 2) * 4, 130, 1, 12, "#76716a");
+    rect(b, 0, 128, SW, 2, "#4a4642");
     nightTint(back, s, 0.5);
 
     const front = layer(), f = front.getContext("2d");
-    // a white guardrail along the track
-    rect(f, 0, 138, 210, 3, "#eef0f2");
-    rect(f, 0, 143, 210, 2, "#d0d4d8");
-    for (let x = 4; x < 210; x += 22) rect(f, x, 138, 3, 18, "#c8ccd2");
-    // the big tree
-    rect(f, 198, 70, 10, 100, "#4a3a2c");
-    rect(f, 200, 70, 2, 100, "#5e4a38");
-    for (const [x, y, r, c] of [
-      [150, 30, 30, "#2f6a3c"], [200, 12, 34, "#2f6a3c"], [250, 34, 30, "#2f6a3c"], [176, 62, 28, "#2a5e36"], [230, 70, 26, "#2a5e36"],
-      [160, 22, 18, "#3f8a4a"], [206, 2, 20, "#3f8a4a"], [244, 22, 16, "#3f8a4a"], [186, 48, 14, "#4e9c58"], [222, 40, 12, "#4e9c58"],
-    ]) disc(f, x, y, r, c, Math.round(r * 0.8));
-    for (let i = 0; i < 70; i++) px(f, 130 + Math.floor(hash(i) * 150), Math.floor(hash(i + 50) * 90), "#6cba6a");
-    // the old shop on the right: planks, eaves, posters, an air conditioner
-    rect(f, 252, 26, 68, 150, "#4a3a30");
-    for (let x = 254; x < 320; x += 5) rect(f, x, 30, 1, 146, "#3e3028");
-    rect(f, 246, 24, 74, 6, "#2e2a30");
-    rect(f, 262, 40, 22, 34, "#fbf8f4");
-    rect(f, 263, 41, 20, 10, "#c8323c");
-    text(f, "MART", 273 - Math.floor(textWidth("MART") / 2), 44, "#ffffff");
-    for (const [x, y, c] of [[290, 50, "#ffd84a"], [292, 86, "#9fd2ff"], [264, 90, "#f392b2"]]) {
-      rect(f, x, y, 18, 24, "#fbf8f4");
-      rect(f, x + 2, y + 2, 14, 12, c);
-      rect(f, x + 3, y + 16, 12, 1, "#8a8494");
-      rect(f, x + 3, y + 19, 9, 1, "#8a8494");
+    // the lane: asphalt, a worn edge, a puddle
+    rect(f, 0, 160, SW, 40, "#6d6a70");
+    rect(f, 0, 160, SW, 1, "#8a8690");
+    for (let i = 0; i < 40; i++) px(f, Math.floor(hash(i + 300) * SW), 162 + Math.floor(hash(i + 301) * 38), "#7d7a80");
+    disc(f, 104, 190, 26, mix(s.bottom, "#6d6a70", 0.3), 4);
+    disc(f, 104, 189, 20, mix(s.top, "#6d6a70", 0.3), 2);
+    // white guardrail along the embankment
+    for (let x = 6; x < 206; x += 24) {
+      rect(f, x, 140, 3, 20, "#d4d8dc");
+      rect(f, x, 140, 1, 20, "#f4f6f8");
     }
-    rect(f, 290, 150, 26, 20, "#d0d2d6");
-    for (let y = 153; y < 168; y += 3) rect(f, 292, y, 22, 1, "#a8aab0");
-    // the temple marker stone: 狐坂寺, with an arrow
-    rect(f, 214, 104, 16, 70, "#e8e6e0");
-    rect(f, 214, 104, 16, 2, "#f6f4f0");
-    rect(f, 228, 106, 2, 68, "#c8c6c0");
-    [0x72d0, 0x5742, 0x5bfa].forEach((code, i) => {
-      const k = kanjiGlyph(cp(code), 10, "#22252c");
-      f.drawImage(k.c, 222 - Math.round(k.w / 2), 110 + i * 14);
+    rect(f, 0, 142, 208, 4, "#eef0f2");
+    rect(f, 0, 146, 208, 1, "#b8bcc2");
+    rect(f, 0, 150, 208, 3, "#e4e6ea");
+    // the utility pole and its signs
+    rect(f, 16, 0, 7, 172, "#6e6a64");
+    rect(f, 17, 0, 1, 172, "#8a8680");
+    rect(f, 6, 18, 27, 3, "#5a5650");
+    for (let y = 30; y < 160; y += 26) rect(f, 16, y, 7, 1, "#5a5650");
+    rect(f, 4, 34, 14, 36, "#22252c");
+    rect(f, 5, 35, 12, 34, "#fbf8f4");
+    [0x7530, 0x4ee3].forEach((code, i) => { // 田代
+      const k = kanjiGlyph(cp(code), 11, "#22252c");
+      f.drawImage(k.c, 11 - Math.round(k.w / 2), 37 + i * 15);
     });
-    rect(f, 216, 154, 12, 1, "#c8323c");
-    paint(f, ["..o", "ooo", "..o"], 226, 153, { o: "#c8323c" });
-    // shrubs, grass and the lane with a puddle
-    for (const [x, y, r] of [[240, 166, 14], [262, 170, 12], [6, 168, 12], [44, 172, 10], [312, 166, 10]]) disc(f, x, y, r, "#356e40", Math.round(r * 0.7));
-    rect(f, 0, 172, SW, 28, "#6d6a70");
-    rect(f, 0, 172, SW, 1, "#8a8690");
-    for (let x = 0; x < SW; x += 7) rect(f, x, 170, 1, 3, "#4e9c58");
-    disc(f, 70, 190, 22, mix(s.bottom, "#6d6a70", 0.35), 3);
-    // a bus-stop bench
-    bench(f, 100, 178, 56);
-    rect(f, 100, 178, 56, 3, "#9a6a46");
-    rect(f, 100, 178, 56, 1, "#b88a60");
-    for (const x of [104, 150]) rect(f, x, 181, 2, 9, "#4a4450");
-    rect(f, 96, 150, 2, 40, "#8e939e");
-    disc(f, 97, 148, 5, "#2e6ad8");
+    rect(f, 22, 80, 14, 20, "#c8323c");
+    rect(f, 23, 81, 12, 18, "#fbf8f4");
+    const rent = kanjiGlyph(cp(0x8cb8), 11, "#c8323c"); // 貸
+    f.drawImage(rent.c, 29 - Math.round(rent.w / 2), 84);
+    // the big tree over the lane
+    rect(f, 184, 60, 11, 112, "#4a3a2c");
+    rect(f, 186, 60, 2, 112, "#5e4a38");
+    rect(f, 180, 166, 20, 6, "#4a3a2c");
+    for (const [x, y, r, c] of [
+      [126, 52, 24, "#285c34"], [160, 20, 34, "#285c34"], [214, 14, 36, "#285c34"], [252, 46, 26, "#285c34"], [180, 72, 30, "#2f6a3c"],
+      [228, 80, 22, "#2f6a3c"], [140, 30, 20, "#3a7e48"], [196, 6, 24, "#3a7e48"], [240, 30, 20, "#3a7e48"], [170, 46, 16, "#4a9456"],
+      [212, 46, 14, "#4a9456"], [150, 70, 14, "#3a7e48"],
+    ]) disc(f, x, y, r, c, Math.round(r * 0.78));
+    for (let i = 0; i < 140; i++) {
+      const x = 104 + Math.floor(hash(i * 3) * 176), y = Math.floor(hash(i * 3 + 1) * 100);
+      px(f, x, y, hash(i * 3 + 2) > 0.5 ? "#62b06a" : "#1f4a2a");
+    }
+    // the old shop: dark planks, an eave with a green gutter and downpipe, a sign, posters, an AC unit
+    rect(f, 240, 22, 80, 154, "#4a3a30");
+    for (let x = 242; x < 320; x += 4) rect(f, x, 26, 1, 150, "#3e3028");
+    rect(f, 232, 18, 88, 6, "#2e2a30");
+    rect(f, 232, 24, 88, 3, "#5f8f78");
+    rect(f, 236, 27, 3, 149, "#5f8f78");
+    rect(f, 235, 27, 5, 2, "#7aa892");
+    rect(f, 250, 40, 24, 30, "#fbf8f4");
+    rect(f, 250, 40, 24, 9, "#c8323c");
+    disc(f, 255, 44, 2, "#fbf8f4");
+    text(f, "MARU", 258, 42, "#ffffff");
+    rect(f, 254, 54, 16, 1, "#8a8494");
+    rect(f, 254, 58, 12, 1, "#8a8494");
+    for (const [x, y, c] of [[282, 44, "#ffd84a"], [300, 64, "#9fd2ff"], [282, 84, "#f392b2"], [302, 100, "#b8e0a0"]]) {
+      rect(f, x, y, 15, 20, "#fbf8f4");
+      rect(f, x + 2, y + 2, 11, 9, c);
+      disc(f, x + 7, y + 6, 2, "#3a3440");
+      rect(f, x + 2, y + 13, 11, 1, "#8a8494");
+      rect(f, x + 2, y + 16, 8, 1, "#8a8494");
+    }
+    rect(f, 258, 112, 26, 24, "#2c221a");
+    for (let k = 258; k < 284; k += 2) rect(f, k, 112, 1, 24, "#8a6a4a");
+    rect(f, 288, 150, 28, 22, "#d0d2d6");
+    for (let y = 153; y < 170; y += 3) rect(f, 290, y, 24, 1, "#a8aab0");
+    disc(f, 302, 161, 6, "#b8bac0");
+    // the temple marker stone: 狐坂寺, an arrow, a stone base
+    rect(f, 198, 112, 18, 62, "#e8e6e0");
+    rect(f, 198, 112, 18, 2, "#f6f4f0");
+    rect(f, 214, 114, 2, 60, "#c8c6c0");
+    [0x72d0, 0x5742, 0x5bfa].forEach((code, i) => {
+      const k = kanjiGlyph(cp(code), 11, "#22252c");
+      f.drawImage(k.c, 207 - Math.round(k.w / 2), 117 + i * 14);
+    });
+    rect(f, 201, 162, 12, 1, "#c8323c");
+    paint(f, ["..o", "ooo", "..o"], 211, 161, { o: "#c8323c" });
+    rect(f, 192, 172, 30, 6, "#9a958c");
+    rect(f, 192, 172, 30, 1, "#b4aea4");
+    // shrubs and grass
+    for (const [x, y, r] of [[226, 168, 13], [250, 172, 14], [276, 176, 10], [188, 172, 9], [130, 164, 8], [6, 168, 10]]) {
+      disc(f, x, y, r, "#2f6a3c", Math.round(r * 0.75));
+      disc(f, x - 2, y - 2, Math.round(r * 0.6), "#3f8a4a", Math.round(r * 0.45));
+    }
+    for (let x = 0; x < 210; x += 5) rect(f, x, 156 + (x % 3), 1, 5, "#4e9c58");
+    // a bench by the guardrail
+    bench(f, 46, 178, 54);
+    rect(f, 46, 178, 54, 3, "#9a6a46");
+    rect(f, 46, 178, 54, 1, "#b88a60");
+    for (const x of [50, 94]) rect(f, x, 181, 2, 9, "#4a4450");
     nightTint(front, s, 0.5);
     return [sky, back, front];
   }
 
-  // A pastel tram rolling along now and then, behind the tree and the rail.
+  // A pastel tram (green cab, pink body) rolling along now and then, behind the rail and the tree.
   function tram(ctx, tf, s) {
-    const x = Math.round(((tf * 1.6) % 800) - 120);
+    const x = Math.round(((tf * 1.4) % 900) - 160);
     if (x > SW) return;
-    const night = s.dark > 0.3;
-    rect(ctx, x, 104, 96, 42, "#f4d6e0");
-    rect(ctx, x, 128, 96, 18, "#bfe3c4");
-    rect(ctx, x, 104, 96, 2, "#fbeef2");
-    for (let k = 14; k < 92; k += 13) rect(ctx, x + k, 112, 9, 12, night ? "#ffe9a8" : "#3a4a5a");
-    rect(ctx, x + 88, 110, 8, 16, night ? "#ffe9a8" : "#5a6a7a");
-    rect(ctx, x + 2, 110, 8, 30, "#9fd6a8");
-    rect(ctx, x + 3, 112, 6, 12, night ? "#ffe9a8" : "#3a4a5a");
-    rect(ctx, x + 40, 98, 16, 6, "#5d6066");
-    rect(ctx, x + 47, 84, 1, 14, "#3a3834");
-    rect(ctx, x + 94, 134, 2, 2, night ? "#fff6c0" : "#f4e7a0");
-    text(ctx, "1203", x + 60, 132, "#3a4a5a");
+    const night = s.dark > 0.3, glass = night ? "#ffe9a8" : "#3a4a5a";
+    rect(ctx, x, 92, 132, 36, "#f6d8e2");
+    rect(ctx, x, 92, 132, 2, "#fbeef2");
+    rect(ctx, x, 120, 132, 8, "#e9b8c8");
+    for (let k = 36; k < 126; k += 12) rect(ctx, x + k, 100, 8, 12, glass);
+    disc(ctx, x + 84, 116, 3, "#f392b2"); // a blossom decal
+    // the cab: rounded green front with a big windscreen
+    rect(ctx, x + 108, 92, 26, 36, "#bfe3c4");
+    rect(ctx, x + 132, 96, 3, 30, "#a9d8b0");
+    rect(ctx, x + 112, 98, 18, 14, glass);
+    rect(ctx, x + 112, 98, 18, 1, "#e8f6ea");
+    rect(ctx, x + 108, 120, 26, 8, "#9fd6a8");
+    rect(ctx, x + 132, 116, 3, 3, night ? "#fff6c0" : "#f4e7a0");
+    text(ctx, "1203", x + 114, 121, "#3a4a5a");
+    // roof and pantograph up to the wire
+    rect(ctx, x + 4, 88, 124, 4, "#d8d0d6");
+    rect(ctx, x + 60, 84, 16, 4, "#5d6066");
+    line(ctx, x + 62, 84, x + 70, 77, "#3a3834");
+    line(ctx, x + 74, 84, x + 70, 77, "#3a3834");
   }
 
-  // Warm windows in the houses and the shop once it's dark.
+  // Warm windows up the slope once it's dark, and a glow in the shop's window.
   function inakaLights(ctx, t, s) {
     if (s.dark <= 0.3) return;
-    for (const h of HOUSES) {
-      for (const [wx, wy, ww, wh] of houseWindows(h)) {
-        if (hash(wx + wy) < 0.35) continue;
-        rect(ctx, wx, wy, ww, wh, "#ffd98a");
-        for (let k = wx + 3; k < wx + ww; k += 4) rect(ctx, k, wy, 1, wh, "#c9a060");
-        rect(ctx, wx, wy + Math.floor(wh / 2), ww, 1, "#c9a060");
+    for (const c of COTTAGES) {
+      for (const [wx, wy, ww, wh] of cottageWindows(c)) {
+        if (hash(wx + wy) < 0.3) continue;
+        rect(ctx, wx, wy, ww, wh, "#ffe2a0");
+        rect(ctx, wx + 3, wy, 1, wh, "#c9a060");
+        rect(ctx, wx, wy + 3, ww, 1, "#c9a060");
       }
     }
-    ctx.globalAlpha = 0.5;
-    rect(ctx, 262, 40, 22, 34, "#ffe9b0");
+    for (let y = 16; y < 80; y += 14) for (let x = 76; x < 118; x += 12) if (hash(x * 7 + y) > 0.5) rect(ctx, x, y + 0, 8, 7, "#ffe9b0");
+    ctx.globalAlpha = 0.55;
+    rect(ctx, 258, 112, 26, 24, "#ffe2a0");
     ctx.globalAlpha = 1;
+  }
+
+  // ---------- Riverside: a river, a red arched bridge, a willow, stone lanterns (full 320×200) ----------
+  const FAR_TOWN = [[150, 34, 80, 104], [188, 40, 76, 104], [232, 30, 82, 104], [266, 44, 74, 104], [-4, 30, 82, 104]];
+  function kawaLayers(s) {
+    const sky = layer(), g = sky.getContext("2d");
+    bands(g, s.top, s.bottom, 0, 110, 7);
+    stars(g, 0, 0, SW, 0, 60, s.dark * (1 - s.rain));
+    celestial(g, s, 0, SW, 0, 56);
+
+    const back = layer(), b = back.getContext("2d");
+    // mountains, a wooded far bank, the town across the water
+    for (let x = 0; x < SW; x++) {
+      const m = Math.round(30 * noise(x / 50 + 9) + 8 * noise(x / 12));
+      rect(b, x, 84 - m, 1, m + 20, mix("#6f86a8", s.bottom, 0.5));
+      const w = Math.round(14 * noise(x / 18 + 3));
+      rect(b, x, 96 - w, 1, w + 8, mix("#4a7a58", s.bottom, 0.4));
+    }
+    for (const c of FAR_TOWN) cottage(b, c, 0.35, s.bottom);
+    // the far bank's stone wall
+    rect(b, 0, 104, SW, 8, "#8e8a80");
+    rect(b, 0, 104, SW, 1, "#a8a49a");
+    for (let x = 0; x < SW; x += 8) rect(b, x + ((x / 8) % 2) * 4, 105, 1, 7, "#76726a");
+    rect(b, 0, 108, SW, 1, "#76726a");
+    // the river, lighter where it mirrors the sky
+    bands(b, mix(s.bottom, "#3a6a8a", 0.45), mix("#2a4a66", "#0e1a2a", s.dark), 112, 152, 5);
+    // the near bank: stone steps down to the water, then the gravel path
+    for (let i = 0; i < 3; i++) {
+      const y = 152 + i * 5;
+      rect(b, 0, y, SW, 5, i % 2 ? "#8e8a80" : "#9a958a");
+      rect(b, 0, y, SW, 1, "#b4aea4");
+      for (let x = (i * 7) % 16; x < SW; x += 16) rect(b, x, y + 1, 1, 4, "#7a766e");
+    }
+    rect(b, 0, 167, SW, 3, "#5f9a58");
+    rect(b, 0, 170, SW, 30, "#b9ae96");
+    for (let i = 0; i < 60; i++) px(b, Math.floor(hash(i + 900) * SW), 172 + Math.floor(hash(i + 901) * 28), i % 2 ? "#a49880" : "#cbc2ac");
+    nightTint(back, s, 0.5);
+
+    const front = layer(), f = front.getContext("2d");
+    // a red arched footbridge over the river
+    const deck = (x) => Math.round(108 - 20 * Math.sin(((x - 24) / 150) * Math.PI));
+    for (const px0 of [52, 92, 132]) rect(f, px0, deck(px0) + 4, 5, 150 - deck(px0) - 4, "#4a2a26");
+    for (let x = 24; x < 174; x++) {
+      const y = deck(x);
+      rect(f, x, y, 1, 4, "#c8423a");
+      px(f, x, y, "#e0645a");
+      px(f, x, y + 4, "#7a2a24");
+      px(f, x, y - 9, "#c8423a");
+      if ((x - 24) % 10 === 0) rect(f, x, y - 9, 2, 9, "#a8362e");
+    }
+    for (const x of [24, 172]) rect(f, x - 1, deck(x) - 12, 4, 12, "#a8362e");
+    // a willow on the near bank (its strands sway, drawn live)
+    rect(f, 272, 60, 8, 110, "#4a3a2c");
+    rect(f, 274, 60, 2, 110, "#5e4a38");
+    for (const [x, y, r] of [[262, 46, 22], [290, 40, 24], [276, 30, 20], [300, 58, 16], [250, 60, 14]]) disc(f, x, y, r, "#4a8a3e", Math.round(r * 0.7));
+    // stone lanterns along the path
+    for (const x of [30, 140]) {
+      rect(f, x + 3, 160, 6, 10, "#9a958c");
+      rect(f, x, 150, 12, 3, "#8a857c");
+      rect(f, x + 2, 153, 8, 7, "#b4aea4");
+      rect(f, x + 4, 155, 4, 3, "#3a3632");
+      paint(f, ["....oooo....", "..oooooooo..", "oooooooooooo"], x - 0, 146, { o: "#8a857c" });
+      rect(f, x + 5, 144, 2, 2, "#8a857c");
+    }
+    // a bench by the water
+    bench(f, 180, 178, 56);
+    rect(f, 180, 178, 56, 3, "#9a6a46");
+    rect(f, 180, 178, 56, 1, "#b88a60");
+    for (const x of [184, 230]) rect(f, x, 181, 2, 9, "#4a4450");
+    nightTint(front, s, 0.5);
+    return [sky, back, front];
+  }
+
+  // The river moving: ripples, the bridge's reflection, ducks, the willow swaying, lanterns at night.
+  function kawaLife(ctx, t, tf, s) {
+    // the bridge mirrored in the water, broken up by ripples
+    ctx.globalAlpha = 0.28;
+    for (let x = 24; x < 174; x += 2) {
+      const y = Math.round(108 - 20 * Math.sin(((x - 24) / 150) * Math.PI));
+      const mirror = 112 + (112 - y) + 4;
+      if (mirror < 152) rect(ctx, x + Math.round(Math.sin(tf / 4 + x / 9)), mirror, 2, 1, "#c8423a");
+    }
+    ctx.globalAlpha = 1;
+    // ripples drifting downstream
+    const glint = mix("#d6ecff", "#5a78b0", s.dark);
+    for (let i = 0; i < 30; i++) {
+      const y = 114 + Math.floor(hash(i + 400) * 36), len = 3 + (i % 5);
+      const x = Math.round((hash(i + 401) * SW + tf * (0.8 + (i % 3) * 0.3)) % (SW + 20)) - 10;
+      ctx.globalAlpha = 0.35 + 0.3 * Math.sin(tf / 3 + i);
+      rect(ctx, x, y, len, 1, glint);
+    }
+    ctx.globalAlpha = 1;
+    // two ducks paddling across, with little wakes
+    for (const [k, dy] of [[0, 128], [1, 134]]) {
+      const x = Math.round(((tf * 0.9 + k * 18) % (SW + 60)) - 30);
+      paint(ctx, ["..gg..", ".gggk.", "bbbbbb", ".bbbb."], x, dy, { g: "#2f6a3c", k: "#e8a02a", b: "#8a6a4a" });
+      ctx.globalAlpha = 0.4;
+      rect(ctx, x - 5, dy + 4, 4, 1, glint);
+      ctx.globalAlpha = 1;
+    }
+    // willow strands swaying in the breeze
+    for (let i = 0; i < 16; i++) {
+      const sx = 246 + i * 4, top = 46 + (i % 3) * 4, len = 50 + Math.floor(hash(i + 70) * 40);
+      for (let y = 0; y < len; y += 2) {
+        const sway = Math.round(Math.sin(tf / 9 + i * 0.6) * (y / len) * 3);
+        px(ctx, sx + sway, top + y, y % 4 ? "#5fa04a" : "#4a8a3e");
+      }
+    }
+    // lanterns lit after dark
+    if (s.dark > 0.3) for (const x of [30, 140]) rect(ctx, x + 4, 155, 4, 3, "#ffd27a");
   }
 
   // Off-screen layer the size of the scene.
@@ -1874,13 +2076,14 @@ window.koritsuScene = (() => {
   // standing, where she walks in from, what she holds]
   const PLACES = [
     { key: "lake", kanji: cp(0x6e56), name: "LAKE", x: 172, seat: DOCK_TOP, feet: DOCK_TOP, from: 112, hold: "rod" },
-    { key: "inaka", kanji: cp(0x7530, 0x820e), name: "INAKA", x: 128, seat: 178, feet: 190, from: 66, hold: "book" },
+    { key: "inaka", kanji: cp(0x7530, 0x820e), name: "INAKA", x: 73, seat: 178, feet: 190, from: 14, hold: "book" },
+    { key: "kawa", kanji: cp(0x5ddd, 0x8fba), name: "RIVER", x: 208, seat: 178, feet: 190, from: 150, hold: "book" },
     { key: "fuji", kanji: cp(0x5bcc, 0x58eb), name: "FUJI", x: 225, seat: 178, feet: 190, from: 168, hold: "book" },
     { key: "tokyo", kanji: cp(0x6771, 0x4eac), name: "TOKYO", x: 150, seat: 116, feet: 130, from: 88, hold: "book" },
     { key: "akiba", kanji: cp(0x79cb, 0x8449, 0x539f), name: "AKIBA", x: 160, seat: 180, feet: 190, from: 100, hold: "book" },
   ];
   // Scenes drawn for the whole 320×200 frame (the rest sit at its bottom).
-  const FULL = new Set(["fuji", "akiba", "inaka"]);
+  const FULL = new Set(["fuji", "akiba", "inaka", "kawa"]);
   const TRAVEL = 10 * 60000, WALK_IN = 5000;
 
   // Where she is and where she's headed, top left while she travels.
@@ -1924,6 +2127,25 @@ window.koritsuScene = (() => {
     }
     const img = what === "walk" ? f.frames[t % FRAMES] : t % 48 === 47 ? f.shut : f.frames[0];
     drawFacing(ctx, img, x, feet, right);
+  }
+
+  // Idle, she tours every scene, starting where she last was: in each she walks in at a steady
+  // pace, stops for a snack and a hop, walks off the far side, and the scene changes.
+  const TOUR = ["lake", "inaka", "kawa", "fuji", "tokyo", "akiba", "station", "bedroom"];
+  const IDLE_LEG = 56000, PACE = 0.0095; // ms in each scene; walking speed in px per ms
+  function wander(ctx, t, tf, f, ms, key) {
+    if (key === "lake") return strolling(ctx, t, tf, f); // along the dock and back
+    const feet = key === "station" ? PLATFORM_FEET : key === "bedroom" ? 146 : PLACES.find((pl) => pl.key === key).feet;
+    const from = -30, to = SW + 30, mid = 150;
+    const eat = f.anims.eating ? anims.eating.total : 0, hop = f.anims.hopping ? anims.hopping.total : 0;
+    const walkIn = (mid - from) / PACE, rest = eat + hop + 1500;
+    const walking = f.frames[t % FRAMES];
+    if (ms < walkIn) return drawFacing(ctx, walking, from + ms * PACE, feet, true);
+    const q = ms - walkIn;
+    if (q < eat) return drawAnim(ctx, f, "eating", frameAt(anims.eating, q, true), mid, feet, true);
+    if (q < eat + hop) return drawAnim(ctx, f, "hopping", frameAt(anims.hopping, q - eat, true), mid, feet, true);
+    if (q < rest) return drawFacing(ctx, t % 48 === 47 ? f.shut : f.frames[0], mid, feet, true);
+    drawFacing(ctx, walking, Math.min(to, mid + (q - rest) * PACE), feet, true);
   }
 
   // Where she is on the platform `p` ms into the wait while commuting: stepping off, walking to
@@ -2136,6 +2358,7 @@ window.koritsuScene = (() => {
         : scene === "tokyo" ? tokyoLayers(s)
         : scene === "akiba" ? akibaLayers(s)
         : scene === "inaka" ? inakaLayers(s)
+        : scene === "kawa" ? kawaLayers(s)
         : lakeLayers(s);
       bg.key = key;
     }
@@ -2176,8 +2399,11 @@ window.koritsuScene = (() => {
     const at_ = fixed >= 0 ? since : since % TRAVEL;
     if (travelling) lastPlace = placeI;
     const spot = PLACES[placeI];
-    const scene = place === "wasted" ? (p < WAIT ? `station-${idx(stop)}` : "train") : place === "break" ? "bedroom" : spot.key;
-    const city = scene === "fuji" || scene === "tokyo" || scene === "akiba" || scene === "inaka";
+    const home = place === "wasted" ? "station" : place === "break" ? "bedroom" : spot.key;
+    const tour = idle ? TOUR[(TOUR.indexOf(home) + Math.floor(since / IDLE_LEG)) % TOUR.length] : null;
+    const scene = tour ? (tour === "station" ? `station-${idx(stop)}` : tour)
+      : place === "wasted" ? (p < WAIT ? `station-${idx(stop)}` : "train") : place === "break" ? "bedroom" : spot.key;
+    const city = ["fuji", "tokyo", "akiba", "inaka", "kawa"].includes(scene);
     const indoors = scene === "bedroom", station = scene.startsWith("station");
     // Commuting, she steps off, waits and boards; kept at the station she just waits on the bench.
     const where = riding && station ? (commute === "cycle" ? onPlatform(p) : { sit: true }) : null;
@@ -2233,6 +2459,9 @@ window.koritsuScene = (() => {
         tram(ctx, tf, s);
         ctx.drawImage(front, 0, 0);
         inakaLights(ctx, t, s);
+      } else if (scene === "kawa") {
+        ctx.drawImage(front, 0, 0);
+        kawaLife(ctx, t, tf, s);
       } else (scene === "fuji" ? fujiLights : tokyoLights)(ctx, t, s);
     } else {
       const [skyLayer, land] = background(scene, s);
@@ -2253,9 +2482,7 @@ window.koritsuScene = (() => {
     else if (scene === "train") sitting(ctx, t, f, "phone", SEATS[1] + 22, SEAT_TOP + (t % 24 === 0 ? 1 : 0)); // the odd bump on the rails
     else if (where?.sit) sitting(ctx, t, f, "phone", BENCH_X, 110);
     else if (where && !where.door) walker(ctx, t, f, where);
-    else if (station && !riding) strolling(ctx, t, tf, f, PLATFORM_FEET);
-    else if (indoors) strolling(ctx, t, tf, f, 140);
-    else if (!station) strolling(ctx, t, tf, f, spot.feet);
+    else if (tour) wander(ctx, t, tf, f, since % IDLE_LEG, tour);
 
     if (indoors) {
       if (!napAnim && !idle) blanket(ctx, outfit, breath, false);
@@ -2301,7 +2528,7 @@ window.koritsuScene = (() => {
 
     // Weather falls through the whole frame, splashing on the ground of each place.
     if (!indoors && scene !== "train") {
-      const ground = { fuji: PAVE, akiba: 176, inaka: 172, tokyo: 126 + oy }[scene] ?? (station ? PLATFORM + oy : HORIZON + 4 + oy);
+      const ground = { fuji: PAVE, akiba: 176, inaka: 160, kawa: 170, tokyo: 126 + oy }[scene] ?? (station ? PLATFORM + oy : HORIZON + 4 + oy);
       if (rain) rainfall(ctx, tf, s, ground);
       if (snow) snowfall(ctx, tf, s);
     }
