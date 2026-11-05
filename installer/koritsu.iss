@@ -8,7 +8,7 @@
 
 ; CI passes the version from Cargo.toml (/DAppVersion=x.y.z); this is the fallback.
 #ifndef AppVersion
-  #define AppVersion "0.5.0"
+  #define AppVersion "0.6.0"
 #endif
 #define AppId "dev.koritsu.Koritsu"
 
