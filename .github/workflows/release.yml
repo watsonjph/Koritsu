@@ -33,7 +33,8 @@ jobs:
           path: dist/Koritsu-Setup-*.exe
 
   macos:
-    runs-on: macos-14
+    # Follows GitHub's current image; pinned versions get retired (macos-14 was, mid-release).
+    runs-on: macos-latest
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
