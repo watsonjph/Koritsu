@@ -47,6 +47,9 @@ pub struct Running {
     pub start: i64,
     #[serde(default)]
     pub activity: String,
+    /// A break that ran past the break length and has been called out, so it's said once.
+    #[serde(default)]
+    pub alerted: bool,
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -95,6 +98,8 @@ pub struct Settings {
     /// Sound when a focus block runs out, and when a break runs out.
     pub focus_end_sound: Alert,
     pub break_end_sound: Alert,
+    /// Minutes a tracked break may last before Koritsu says it's over; 0 means no limit.
+    pub break_min: u32,
     /// Pre-0.3 global overrides; moved into `custom` on load.
     #[serde(skip_serializing)]
     pub positive: Option<String>,
@@ -607,6 +612,7 @@ impl Default for Settings {
             character: Character::default(),
             focus_end_sound: Alert::Kalimba,
             break_end_sound: Alert::Bell,
+            break_min: 0,
             positive: None,
             negative: None,
         }
@@ -652,7 +658,19 @@ impl Store {
     pub fn start(&mut self, kind: Kind, activity: String, now: i64) {
         self.stop(now);
         self.remember(kind, &activity);
-        self.running = Some(Running { kind, start: now, activity: activity.trim().to_string() });
+        self.running = Some(Running { kind, start: now, activity: activity.trim().to_string(), alerted: false });
+    }
+
+    /// Seconds left in the running break, negative once it's over; `None` without a break length.
+    pub fn break_left(&self, now: i64) -> Option<i64> {
+        let r = self.running.as_ref().filter(|r| r.kind == Kind::Break)?;
+        let limit = i64::from(self.settings.break_min) * 60;
+        (limit > 0).then(|| limit - (now - r.start))
+    }
+
+    /// The running break just went past the break length and hasn't been called out yet.
+    pub fn break_overdue(&self, now: i64) -> bool {
+        self.break_left(now).is_some_and(|left| left <= 0) && self.running.as_ref().is_some_and(|r| !r.alerted)
     }
 
     /// Breaks have no named activities.
@@ -1000,6 +1018,22 @@ mod tests {
         let mut st = Store::default();
         st.remember(Kind::Break, "nap");
         assert!(st.activities(Kind::Break).is_empty());
+    }
+
+    #[test]
+    fn break_is_called_out_once_after_its_length() {
+        let mut st = Store::default();
+        st.start(Kind::Break, String::new(), 1000);
+        assert!(!st.break_overdue(5000)); // no break length set
+        st.settings.break_min = 10;
+        assert_eq!(st.break_left(1000 + 599), Some(1));
+        assert!(!st.break_overdue(1000 + 599));
+        assert!(st.break_overdue(1000 + 600));
+        assert!(st.break_overdue(1000 + 900)); // a missed tick still catches it
+        st.running.as_mut().unwrap().alerted = true;
+        assert!(!st.break_overdue(1000 + 900));
+        st.start(Kind::Wasted, String::new(), 2000);
+        assert_eq!(st.break_left(9000), None); // only breaks have a length
     }
 
     #[test]

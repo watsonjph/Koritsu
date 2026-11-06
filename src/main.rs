@@ -226,7 +226,7 @@ fn App() -> Element {
         }
         Rc::new(tray.ok())
     });
-    dioxus::desktop::use_tray_menu_event_handler(move |e| {
+    let on_menu = move |e: &dioxus::desktop::trayicon::menu::MenuEvent| {
         if e.id == TRAY_SHOW {
             toggle_window();
         } else if e.id == TRAY_QUIT {
@@ -235,7 +235,11 @@ fn App() -> Element {
             let _ = store::save(&store.peek());
             std::process::exit(0);
         }
-    });
+    };
+    // muda keeps only the first menu handler it's given, and Dioxus 0.7 registers its menubar one
+    // first, so tray-menu clicks arrive as muda events. Listen on both in case that's ever fixed.
+    dioxus::desktop::use_muda_event_handler(on_menu);
+    dioxus::desktop::use_tray_menu_event_handler(on_menu);
     dioxus::desktop::use_tray_icon_event_handler(|e| {
         use dioxus::desktop::trayicon::{MouseButton, MouseButtonState, TrayIconEvent};
         if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
@@ -431,6 +435,13 @@ fn tick(store: Signal<Store>, mut pomo: Signal<Pomo>) {
                 pomodoro::start(store, pomo, now);
             }
         }
+    }
+
+    // A tracked break that has run its length: say so once. It keeps counting until stopped.
+    if store.peek().break_overdue(now) {
+        commit(store, |st| st.running.iter_mut().for_each(|r| r.alerted = true));
+        sound::alert(&s, s.break_end_sound);
+        notify(store, tr().break_over.into());
     }
 
     let due = |t: &store::Todo| !t.done && !t.notified && t.due().is_some_and(|d| d <= now);

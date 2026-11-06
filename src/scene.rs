@@ -33,6 +33,8 @@ pub fn Scene(preview: ReadSignal<Option<&'static str>>) -> Element {
     let id = use_hook(|| format!("scene-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed)));
     let shown = preview().unwrap_or_else(|| mood(&store.read(), &pomo.read()));
     let secs = store.read().settings.character.bubble_secs;
+    // A tracked break that ran past its length: she realises it's time to get up.
+    let over = preview().is_none() && shown == "break" && store.read().running.as_ref().is_some_and(|r| r.alerted);
 
     // Re-runs whenever the store, the Pomodoro or the preview mood changes.
     let canvas = id.clone();
@@ -56,7 +58,7 @@ pub fn Scene(preview: ReadSignal<Option<&'static str>>) -> Element {
     rsx! {
         div { class: "scene-wrap",
             // scene.js keeps --hx / --hy on this wrapper at the top of her head
-            Thought { key: "{shown}", mood: shown, secs }
+            Thought { key: "{shown}-{over}", mood: shown, over, secs }
             canvas {
                 id: "{id}",
                 class: "scene",
@@ -72,12 +74,13 @@ pub fn Scene(preview: ReadSignal<Option<&'static str>>) -> Element {
 }
 
 /// Her thought, in a bubble over her head: a new one every so often, each up for `secs` seconds.
-/// Keyed by mood, so a change of mood starts over with a fresh thought.
+/// Keyed by mood, so a change of mood starts over with a fresh thought. `over`: her break ran out.
 #[component]
-fn Thought(mood: &'static str, secs: u32) -> Element {
+fn Thought(mood: &'static str, over: bool, secs: u32) -> Element {
     let start = use_hook(|| *NOW.peek());
     let t = tr();
     let list: &[&str] = match mood {
+        _ if over => t.think_break_over,
         "productive" => t.think_productive,
         "wasted" => t.think_wasted,
         "break" => t.think_break,
@@ -97,7 +100,7 @@ fn Thought(mood: &'static str, secs: u32) -> Element {
     rsx! {
         for n in [n] {
             div { key: "{n}", class: "thought {mood}", class: if leaving { "leaving" },
-                if mood == "break" { Sheep {} }
+                if over { Alarm {} } else if mood == "break" { Sheep {} }
                 span { "{text}" }
             }
         }
@@ -123,6 +126,23 @@ fn Sheep() -> Element {
     }
 }
 
+/// A ringing alarm clock, for when the break is over.
+#[component]
+fn Alarm() -> Element {
+    rsx! {
+        svg { class: "alarm", view_box: "0 0 12 12", width: "16", height: "16",
+            rect { x: "1", y: "1", width: "3", height: "2", fill: "#e2564a" }
+            rect { x: "8", y: "1", width: "3", height: "2", fill: "#e2564a" }
+            rect { x: "2", y: "3", width: "8", height: "7", fill: "#e2564a" }
+            rect { x: "3", y: "4", width: "6", height: "5", fill: "#fffdf8" }
+            rect { x: "5", y: "5", width: "1", height: "2", fill: "#2a2433" }
+            rect { x: "5", y: "6", width: "2", height: "1", fill: "#2a2433" }
+            rect { x: "2", y: "10", width: "1", height: "1", fill: "#2a2433" }
+            rect { x: "9", y: "10", width: "1", height: "1", fill: "#2a2433" }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,7 +159,7 @@ mod tests {
         pomo.skip(&s);
         pomo.start(0);
         assert_eq!(mood(&store, &pomo), "break");
-        store.running = Some(Running { kind: Kind::Wasted, start: 0, activity: String::new() });
+        store.running = Some(Running { kind: Kind::Wasted, start: 0, activity: String::new(), alerted: false });
         assert_eq!(mood(&store, &pomo), "wasted");
     }
 }
