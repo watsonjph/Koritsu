@@ -7,6 +7,9 @@ use dioxus::desktop::window;
 use dioxus::prelude::*;
 use std::path::PathBuf;
 
+/// Break lengths to pick from, in minutes; 0 is no limit.
+const BREAK_MINS: [u32; 6] = [0, 5, 10, 15, 20, 30];
+
 #[component]
 pub fn SettingsTab() -> Element {
     let store = use_context::<Signal<Store>>();
@@ -61,6 +64,24 @@ pub fn SettingsTab() -> Element {
                 }
                 if let Some(e) = autostart_err() {
                     div { class: "set-note error", "{e}" }
+                }
+                // How long a tracked break may run before Koritsu says it's over.
+                div { class: "set-row stack",
+                    span { "{t.break_length}" }
+                    div { class: "seg small", style: "--i: {BREAK_MINS.iter().position(|m| *m == s.break_min).unwrap_or(0)}; --n: {BREAK_MINS.len()}",
+                        span { class: "seg-pill break" }
+                        for min in BREAK_MINS {
+                            button {
+                                key: "{min}",
+                                class: if s.break_min == min { "seg-btn on" } else { "seg-btn" },
+                                onclick: move |_| {
+                                    commit(store, |st| st.settings.break_min = min);
+                                    sound::button(&store.peek().settings, "click");
+                                },
+                                if min == 0 { "{t.off}" } else { "{min}m" }
+                            }
+                        }
+                    }
                 }
             }
 

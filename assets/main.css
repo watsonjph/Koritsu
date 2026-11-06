@@ -214,6 +214,9 @@ kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 5px; back
 @keyframes unthink { to { opacity: 0; transform: translate(-50%, calc(-100% - 20px)) scale(.92); } }
 .sheep { flex: none; }
 .sheep .hop { animation: sheep-hop 1.6s ease-in-out infinite; }
+/* rings in bursts */
+.alarm { flex: none; transform-origin: 50% 85%; animation: ring 1.4s ease-in-out infinite; }
+@keyframes ring { 0%, 45%, 100% { transform: rotate(0); } 9% { transform: rotate(-16deg); } 18% { transform: rotate(14deg); } 27% { transform: rotate(-10deg); } 36% { transform: rotate(6deg); } }
 @keyframes sheep-hop { 0% { transform: translateX(-3px); } 45% { transform: translate(5px, -4px); } 90%, 100% { transform: translateX(14px); opacity: 0; } }
 .preview-seg { margin-top: -2px; }
 /* Fills the width at the canvas's own aspect ratio; no JS sizing, so nothing can feed back into layout. */

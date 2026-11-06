@@ -60,9 +60,15 @@ pub fn TrackTab() -> Element {
     let pomo_live = running.is_none() && p.running();
     let pomo_class = if p.phase == Phase::Focus { Kind::Productive.class() } else { Kind::Break.class() };
     let filled = if p.phase == Phase::Long { rounds } else { p.done % rounds };
+    // A break with a set length counts down what's left, then up with a + once it's over.
+    let run_clock = |start: i64| match st.break_left(now) {
+        Some(left) if left > 0 => fmt_clock(left),
+        Some(left) => format!("+{}", fmt_clock(-left)),
+        None => fmt_clock(now - start),
+    };
     let (status, clock) = match &running {
-        Some(r) if r.activity.is_empty() => (kind_label(r.kind).to_string(), fmt_clock(now - r.start)),
-        Some(r) => (format!("{} · {}", kind_label(r.kind), r.activity), fmt_clock(now - r.start)),
+        Some(r) if r.activity.is_empty() => (kind_label(r.kind).to_string(), run_clock(r.start)),
+        Some(r) => (format!("{} · {}", kind_label(r.kind), r.activity), run_clock(r.start)),
         None if pomo_live => (p.phase.label(t).to_string(), fmt_clock(p.remaining(now))),
         None => (t.idle.to_string(), "00:00".to_string()),
     };
